@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -57,11 +58,25 @@ import numpy as np
 try:
     import cv2
     import mediapipe as mp
+    from mediapipe.tasks.python.vision import (
+        FaceLandmarker,
+        FaceLandmarkerOptions,
+        RunningMode,
+    )
+    from mediapipe.tasks.python.core.base_options import BaseOptions
     _MP_AVAILABLE = True
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore[assignment]
     mp = None  # type: ignore[assignment]
+    FaceLandmarker = None  # type: ignore[assignment]
     _MP_AVAILABLE = False
+
+
+_DEFAULT_MODEL_PATH = "models/face_landmarker.task"
+_FACE_LANDMARKER_DOWNLOAD_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/latest/face_landmarker.task"
+)
 
 
 # MediaPipe FaceMesh landmark indices.
@@ -229,32 +244,56 @@ class TrapeziumSample:
 
 
 class FaceTrapeziumDetector:
-    """Wraps MediaPipe FaceMesh and returns one TrapeziumSample per frame."""
+    """Wraps MediaPipe's FaceLandmarker (Tasks API) and returns one
+    TrapeziumSample per video frame.
 
-    def __init__(self) -> None:
+    The default model path is ``models/face_landmarker.task``. If it isn't
+    present, fetch it once with::
+
+        curl -sSL -o models/face_landmarker.task \\
+          https://storage.googleapis.com/mediapipe-models/face_landmarker/\\
+          face_landmarker/float16/latest/face_landmarker.task
+
+    The Tasks API requires monotonically increasing per-call timestamps in
+    milliseconds; this class enforces that internally so callers can pass
+    arbitrary float seconds as ``t``.
+    """
+
+    def __init__(self, model_path: str = _DEFAULT_MODEL_PATH) -> None:
         if not _MP_AVAILABLE:
             raise RuntimeError(
                 "mediapipe / opencv are required for live detection. "
                 "Install them via `pip install -r requirements.txt`."
             )
-        self.mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=False,
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+        if not Path(model_path).exists():
+            raise RuntimeError(
+                f"FaceLandmarker model not found at {model_path}. "
+                f"Download with:\n  curl -sSL -o {model_path} {_FACE_LANDMARKER_DOWNLOAD_URL}"
+            )
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=model_path),
+            running_mode=RunningMode.VIDEO,
+            num_faces=1,
         )
+        self._landmarker = FaceLandmarker.create_from_options(options)
+        self._last_ts_ms = -1
 
     def detect(self, image_bgr: np.ndarray, t: float) -> Optional[TrapeziumSample]:
         h, w = image_bgr.shape[:2]
         rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        result = self.mesh.process(rgb)
-        if not result.multi_face_landmarks:
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        ts_ms = int(t * 1000)
+        if ts_ms <= self._last_ts_ms:
+            ts_ms = self._last_ts_ms + 1
+        self._last_ts_ms = ts_ms
+        result = self._landmarker.detect_for_video(mp_image, ts_ms)
+        if not result.face_landmarks:
             return None
-        lm = result.multi_face_landmarks[0].landmark
+        lm = result.face_landmarks[0]
 
         def pt(i: int) -> np.ndarray:
-            return np.array([lm[i].x * w, lm[i].y * h, lm[i].z * w])
+            p = lm[i]
+            return np.array([p.x * w, p.y * h, p.z * w])
 
         return TrapeziumSample(
             t=t,
@@ -267,7 +306,7 @@ class FaceTrapeziumDetector:
         ).compute_derived()
 
     def close(self) -> None:
-        self.mesh.close()
+        self._landmarker.close()
 
     def __enter__(self) -> "FaceTrapeziumDetector":
         return self

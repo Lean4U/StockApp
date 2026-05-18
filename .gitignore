@@ -4,3 +4,12 @@ __pycache__/
 signatures.json
 confirm_60s.png
 confirm_60s_data.npz
+models/
+videos/*.MOV
+videos/*.mov
+videos/*.mp4
+videos/*.MP4
+videos/*_report.png
+videos/*_events.json
+videos/*_overlay.mp4
+videos/frame_*.jpg
