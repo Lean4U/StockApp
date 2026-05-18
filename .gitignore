@@ -18,3 +18,4 @@ videos/*_dfi_cache.npz
 videos/*_dfi_report.png
 videos/*_dfi_events.json
 videos/*_dfi_overlay.mp4
+videos/dashboard_*.png
