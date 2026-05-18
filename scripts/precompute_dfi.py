@@ -43,6 +43,7 @@ from hands_pipeline import (  # noqa: E402
     REGION_WEIGHTS,
 )
 from voice_analytics import compute_voice  # noqa: E402
+from voice_transcript import is_available as transcript_available, transcribe_audio  # noqa: E402
 from dfi import compute_dfi  # noqa: E402
 
 
@@ -59,6 +60,11 @@ def main() -> int:
     ap.add_argument("--fidget-window-s", type=float, default=15.0)
     ap.add_argument("--no-voice", action="store_true")
     ap.add_argument("--no-hands", action="store_true")
+    ap.add_argument("--no-transcript", action="store_true",
+                    help="Skip ASR even if the Whisper model is present.")
+    ap.add_argument("--ephemeral", action="store_true",
+                    help="Run the pipeline in-memory; print summary but do not "
+                         "write the .npz cache or any artifact to disk.")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
@@ -66,7 +72,9 @@ def main() -> int:
         print(f"Video not found: {args.video}")
         return 1
     cache = args.video.parent / f"{args.video.stem}_dfi_cache.npz"
-    if cache.exists() and not args.force:
+    if args.ephemeral:
+        print("--ephemeral: results will be computed in memory only; no cache written.")
+    elif cache.exists() and not args.force:
         print(f"Cache exists: {cache}. Use --force to regenerate.")
         return 0
 
@@ -211,6 +219,34 @@ def main() -> int:
             "dominant_feature": e.dominant_feature,
         })
 
+    # ---- Speech transcript (local-only via faster-whisper) ----------------
+    transcript_meta = None
+    if not args.no_voice and not args.no_transcript:
+        if transcript_available():
+            try:
+                print("Transcribing audio locally (faster-whisper small, no network)…")
+                tr = transcribe_audio(args.video)
+                transcript_meta = tr.to_dict()
+                print(f"  language={tr.language} ({tr.language_probability:.2f}), "
+                      f"{len(tr.segments)} segments")
+            except Exception as e:
+                print(f"  transcript failed: {e}")
+                transcript_meta = {"error": str(e)}
+        else:
+            transcript_meta = {
+                "error": "Whisper model not present. Run scripts/fetch_models.sh on a "
+                         "machine with network access (~250 MB one-time download).",
+            }
+            print(f"  {transcript_meta['error']}")
+
+    if args.ephemeral:
+        # In-memory mode: emit the summary and exit without writing artifacts.
+        print(f"\n[ephemeral] No cache written. "
+              f"Summary: max M={au.m.max():.2f}σ  max F={f_z.max():.2f}σ  "
+              f"max V={v_values.max():.2f}σ  max DFI={dfi_rep.dfi.max():.2f}  "
+              f"breach windows={len(dfi_rep.windows)}")
+        return 0
+
     np.savez(
         cache,
         # core arrays
@@ -255,6 +291,7 @@ def main() -> int:
                 "max_v": float(v_values.max()),
                 "max_dfi": float(dfi_rep.dfi.max()),
             },
+            "transcript": transcript_meta,
         }),
     )
     print(f"\nSaved cache: {cache}")

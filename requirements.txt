@@ -11,3 +11,4 @@ altair>=5.0
 librosa>=0.10
 soundfile>=0.12
 matplotlib>=3.8
+faster-whisper>=1.0

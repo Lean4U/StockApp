@@ -1,0 +1,16 @@
+# Privacy-hardened Streamlit defaults for the DFI dashboard.
+# Disables Streamlit's usage telemetry and forces localhost-only binding so
+# the dashboard cannot inadvertently expose biometric data over the network.
+
+[browser]
+gatherUsageStats = false
+serverAddress = "127.0.0.1"
+
+[server]
+address = "127.0.0.1"
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[global]
+developmentMode = false

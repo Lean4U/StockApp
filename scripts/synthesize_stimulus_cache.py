@@ -98,6 +98,31 @@ def main():
             {"t": 120.0, "kind": "co-firing breach", "channels": "V↑ F↑ M↑ — all together"},
         ],
     }
+    # Synthetic transcript so the dashboard's caption + breach verbatim
+    # behavior can be demonstrated even though the real Whisper model is
+    # not downloadable in the sandbox. Real runs replace this with the
+    # output of faster-whisper.
+    synthetic_segments = [
+        (5.0, 9.5, "Sure, I'd be happy to walk you through it."),
+        (12.0, 17.0, "We met on a Tuesday afternoon, around three I think."),
+        (28.0, 33.5, "Honestly, I have no idea what you're talking about."),
+        (50.0, 55.0, "Yes, we spoke briefly, but only about the project."),
+        (68.5, 74.0, "I might have mentioned the meeting in passing, that's all."),
+        (95.0, 101.0, "I was at home that evening, just like every other Tuesday."),
+        (118.5, 124.5, "I never saw that document. I have no recollection of signing it."),
+        (140.0, 146.0, "Look, I've answered this question multiple times already."),
+    ]
+    seg_dicts = []
+    for s, e, text in synthetic_segments:
+        seg_dicts.append({
+            "start": s, "end": e, "text": text, "words": [],
+        })
+    new_meta["transcript"] = {
+        "language": "en", "language_probability": 0.99,
+        "duration_s": float(times[-1] - times[0]) if times.size else 0.0,
+        "segments": seg_dicts,
+        "synthetic_demo": True,
+    }
 
     # Save (keep all other arrays unchanged so the dashboard still has the real frames + AU clusters).
     np.savez(

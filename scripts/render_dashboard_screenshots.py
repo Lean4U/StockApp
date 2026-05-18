@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import matplotlib
@@ -28,6 +29,7 @@ from matplotlib.gridspec import GridSpec
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from voice_transcript import TranscriptResult  # noqa: E402
 
 CACHE_PATH = REPO / "videos" / "test-video-1-demo_dfi_cache.npz"
 VIDEO_PATH = REPO / "videos" / "test-video-1.MOV"
@@ -46,6 +48,13 @@ def _bg_dark(ax):
 def load() -> dict:
     npz = np.load(CACHE_PATH, allow_pickle=True)
     meta = json.loads(str(npz["meta_json"]))
+    transcript = None
+    tr_meta = meta.get("transcript")
+    if isinstance(tr_meta, dict) and "segments" in tr_meta:
+        try:
+            transcript = TranscriptResult.from_dict(tr_meta)
+        except Exception:
+            transcript = None
     return {
         "times": npz["times"],
         "m": npz["m"],
@@ -59,6 +68,7 @@ def load() -> dict:
         "cluster_z": npz["cluster_z"],
         "cluster_names": [str(s) for s in npz["cluster_names"]],
         "meta": meta,
+        "transcript": transcript,
     }
 
 
@@ -110,7 +120,16 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
     img = read_video_frame(frame_idx)
     ax_video.imshow(img)
     ax_video.set_xticks([]); ax_video.set_yticks([])
-    ax_video.set_title(f"Subject — t = {cursor_t:.2f}s", color="#ddd", fontsize=11)
+    title = f"Subject — t = {cursor_t:.2f}s"
+    # Live caption (current spoken segment, if any).
+    transcript: Optional[TranscriptResult] = data.get("transcript")
+    caption_text = ""
+    if transcript is not None:
+        seg = transcript.segment_at(cursor_t)
+        if seg is not None:
+            caption_text = f'  "{seg.text.strip()}"'
+    ax_video.set_title(title + caption_text, color="#9cd0f0",
+                       fontsize=10, loc="left", style="italic")
     for sp in ax_video.spines.values():
         sp.set_color("#333")
 
@@ -200,7 +219,8 @@ def render_event_log(out_path: Path, data: dict):
     """Plain text-card rendering of the breach event log."""
     windows = data["meta"].get("dfi_windows", [])
     threshold = data["meta"]["threshold"]
-    fig = plt.figure(figsize=(16, max(3, 1.5 + 1.5 * max(len(windows), 1))),
+    transcript: Optional[TranscriptResult] = data.get("transcript")
+    fig = plt.figure(figsize=(16, max(3, 2.5 + 2.4 * max(len(windows), 1))),
                      facecolor="#0a0c10")
     fig.suptitle("⚡ Equilibrium-Shatter Event Log",
                  color="white", fontsize=18, fontweight="bold", x=0.05,
@@ -215,14 +235,14 @@ def render_event_log(out_path: Path, data: dict):
                 color="#90ee90", fontsize=14, fontweight="bold",
                 verticalalignment="center")
     else:
-        y0 = 0.85
-        h_each = min(0.18, 0.85 / len(windows))
+        y0 = 0.90
+        h_each = min(0.26, 0.90 / len(windows))
         v_resampled = np.interp(data["times"], data["v_times"], data["v_values"])
         alpha = data["meta"]["alpha"]
         beta = data["meta"]["beta"]
         gamma = data["meta"]["gamma"]
         for i, w in enumerate(windows):
-            y = y0 - (i + 1) * (h_each + 0.02)
+            y = y0 - (i + 1) * (h_each + 0.03)
             ax = fig.add_axes([0.05, y, 0.9, h_each])
             ax.set_facecolor("#2a1212")
             ax.set_xticks([]); ax.set_yticks([])
@@ -237,21 +257,39 @@ def render_event_log(out_path: Path, data: dict):
                 f"⚠ DFI = {w['peak_dfi']:.2f}  >  threshold {threshold:.2f}     "
                 f"at t = {w['peak_t']:.2f}s"
             )
-            ax.text(0.02, 0.78, line1, transform=ax.transAxes,
+            ax.text(0.02, 0.84, line1, transform=ax.transAxes,
                     color="#ff6b6b", fontsize=16, fontweight="bold")
             line2 = (
                 f"window: {w['start_t']:.2f}s — {w['end_t']:.2f}s  "
                 f"({w['duration_s']:.2f}s)   "
                 f"dominant channel: {w['dominant_component']}"
             )
-            ax.text(0.02, 0.50, line2, transform=ax.transAxes,
+            ax.text(0.02, 0.66, line2, transform=ax.transAxes,
                     color="#ffd0d0", fontsize=11)
             line3 = (
                 f"channel contributions:  α·V = {alpha*v_p:+.2f}     "
                 f"β·F = {beta*f_p:+.2f}     γ·M = {gamma*m_p:+.2f}"
             )
-            ax.text(0.02, 0.20, line3, transform=ax.transAxes,
+            ax.text(0.02, 0.50, line3, transform=ax.transAxes,
                     color="#ffe0e0", fontsize=11, family="monospace")
+            # Verbatim transcript in the breach window — the actual response.
+            verbatim = ""
+            if transcript is not None:
+                verbatim = transcript.text_within(
+                    float(w["start_t"]), float(w["end_t"]),
+                ).strip()
+            if verbatim:
+                ax.text(0.02, 0.30,
+                        "VERBATIM RESPONSE", transform=ax.transAxes,
+                        color="#ffb86b", fontsize=9, fontweight="bold")
+                ax.text(0.02, 0.12,
+                        f'"{verbatim}"', transform=ax.transAxes,
+                        color="#ffd9a8", fontsize=13, style="italic",
+                        wrap=True)
+            elif transcript is not None:
+                ax.text(0.02, 0.20,
+                        "(no speech in this window)", transform=ax.transAxes,
+                        color="#888", fontsize=10)
 
     fig.savefig(out_path, dpi=130, facecolor="#0a0c10")
     plt.close(fig)

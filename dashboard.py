@@ -41,6 +41,7 @@ import pandas as pd
 import streamlit as st
 
 from dfi import DFI_DISCLAIMER
+from voice_transcript import TranscriptResult
 
 
 REPO = Path(__file__).resolve().parent
@@ -79,6 +80,18 @@ def open_video(video_path: str):
     if not cap.isOpened():
         return None
     return cap
+
+
+def _transcript_from_meta(meta: dict) -> Optional[TranscriptResult]:
+    """Reconstruct a TranscriptResult from a cache's meta blob, if present
+    and well-formed (i.e. not an error dict from a missing-model run)."""
+    tr = meta.get("transcript")
+    if not isinstance(tr, dict) or "segments" not in tr:
+        return None
+    try:
+        return TranscriptResult.from_dict(tr)
+    except Exception:
+        return None
 
 
 def read_frame_at(cap, frame_idx: int) -> Optional[np.ndarray]:
@@ -144,8 +157,47 @@ def main() -> None:
         )
         auto_play = st.toggle("Auto-play")
 
+        st.divider()
+        st.header("Privacy")
+        st.caption(
+            "All processing runs locally on this host. Models (MediaPipe "
+            "face/hand, Whisper) are loaded from `models/` — once fetched, "
+            "no audio, video, or derived data leaves the machine. Streamlit "
+            "telemetry is disabled via `.streamlit/config.toml`."
+        )
+        delete_target = st.selectbox(
+            "Delete which artifacts?",
+            options=["(select)", "current cache only", "all caches + plots + overlays"],
+        )
+        if st.button("Delete now", type="secondary"):
+            removed = []
+            video_dir = REPO / "videos"
+            if delete_target == "current cache only":
+                p = Path(cache_choice)
+                if p.exists():
+                    p.unlink()
+                    removed.append(p.name)
+            elif delete_target == "all caches + plots + overlays":
+                patterns = [
+                    "*_dfi_cache.npz", "*_dfi_report.png", "*_dfi_events.json",
+                    "*_dfi_overlay.mp4", "dashboard_*.png", "*_report.png",
+                    "frame_*.jpg", "hands_*.jpg",
+                ]
+                for pat in patterns:
+                    for p in video_dir.glob(pat):
+                        p.unlink()
+                        removed.append(p.name)
+            if removed:
+                st.success(f"Deleted {len(removed)} file(s): {', '.join(removed[:6])}"
+                           + (" …" if len(removed) > 6 else ""))
+                load_cache.clear()
+                st.rerun()
+            else:
+                st.info("Nothing matched.")
+
     data = load_cache(str(cache_choice))
     meta = data["meta"]
+    transcript: Optional[TranscriptResult] = _transcript_from_meta(meta)
     video_path = meta["video"]
     cap = open_video(video_path)
     if cap is None:
@@ -200,6 +252,31 @@ def main() -> None:
             st.image(rgb, caption=f"t = {cursor_t:.2f} s")
         else:
             st.warning("Could not read frame")
+
+        # Live caption strip — what the subject is saying *right now*.
+        if transcript is not None:
+            cur = transcript.segment_at(cursor_t)
+            if cur is not None and cur.text.strip():
+                st.markdown(
+                    "<div style='padding:10px 14px;background:#101820;"
+                    "border-left:4px solid #4dabf7;border-radius:4px;"
+                    "color:#dde6f1;font-size:1.05rem;font-style:italic'>"
+                    f"“{cur.text.strip()}”"
+                    f"<div style='font-size:0.75rem;color:#7891a8;margin-top:4px'>"
+                    f"{cur.start:.2f}s — {cur.end:.2f}s "
+                    f"·   {transcript.language} "
+                    f"({transcript.language_probability:.0%} conf.)"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("(silence)")
+        else:
+            tr_meta = meta.get("transcript")
+            if isinstance(tr_meta, dict) and "error" in tr_meta:
+                st.caption(f"⚠ Transcript unavailable: {tr_meta['error']}")
+            else:
+                st.caption("Transcript: not enabled (run with ASR to populate).")
 
     with col_state:
         v_at = float(np.interp(cursor_t, data["v_times"], data["v_values"]))
@@ -345,6 +422,29 @@ def main() -> None:
                     )
                     break
 
+            # Verbatim transcript spanning the breach window (if available).
+            spoken_text = ""
+            if transcript is not None:
+                spoken_text = transcript.text_within(
+                    float(times[si]), float(times[ei]),
+                ).strip()
+            verbatim_html = ""
+            if spoken_text:
+                verbatim_html = (
+                    "<div style='margin-top:10px;padding:10px;background:#1a0a0a;"
+                    "border-left:3px solid #ffb86b;border-radius:3px;"
+                    "color:#ffd9a8;font-style:italic;font-size:0.95rem'>"
+                    "<span style='color:#ffb86b;font-style:normal;"
+                    "font-weight:bold;font-size:0.8rem'>VERBATIM RESPONSE — </span>"
+                    f"“{spoken_text}”"
+                    "</div>"
+                )
+            elif transcript is not None:
+                verbatim_html = (
+                    "<div style='margin-top:8px;color:#888;font-size:0.85rem'>"
+                    "(no speech detected in the breach window)</div>"
+                )
+
             st.markdown(
                 f"<div style='padding:12px;background:#2a1212;border-left:5px solid #d9534f;border-radius:4px;margin-bottom:8px'>"
                 f"<b style='color:#ff6b6b'>⚠ DFI = {peak_dfi:.2f} > {live_threshold:.2f}</b>"
@@ -354,6 +454,7 @@ def main() -> None:
                 f"Dominant channel: <b>{dom}</b> "
                 f"(V={contribs['V']:+.2f}, F={contribs['F']:+.2f}, "
                 f"M={contribs['M']:+.2f}){dom_feature_text}"
+                f"{verbatim_html}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
