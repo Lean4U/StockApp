@@ -299,7 +299,7 @@ def main() -> int:
                 regions_per_frame.append("none")
                 hand_state_codes[i] = -1
                 continue
-            regions_per_frame.append(hs.hand_to_face_region or "none")
+            regions_per_frame.append(hs.effective_region or "none")
             # Use combined finger motion (max of two hands) as K_e proxy.
             kinetic_per_frame[i] = max(hs.finger_motion_L, hs.finger_motion_R)
             hand_state_codes[i] = float(hs.hand_state_code)

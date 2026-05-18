@@ -111,6 +111,44 @@ def test_hand_centroid():
     np.testing.assert_allclose(c, [5, 5, 0])
 
 
+def test_effective_region_falls_back_to_hand_state():
+    """When no hand-to-face contact is happening, the effective_region used
+    by F(t) must reflect the hand-to-hand state — otherwise hand fidgeting
+    that never reaches the face is silently ignored."""
+    from hands_pipeline import HandsTracker, HandsSample
+    import numpy as np
+
+    tracker = HandsTracker(proximity_threshold_norm=0.4,
+                           face_proximity_threshold_norm=0.7)
+    # Two hands close to each other, neither close to the face — placed well
+    # below the synthesised neck so face/neck thresholds (0.7 * eye_line = 70 px)
+    # cannot reach them.
+    hand_L = np.zeros((21, 3))
+    hand_L[0] = [100, 700, 0]  # wrist, well below neck
+    hand_L[9] = [100, 710, 0]
+    hand_R = hand_L + np.array([20, 0, 0])  # 20 px apart in lap
+
+    face_points = np.array([
+        [50, 200, 0],   # left eye
+        [150, 200, 0],  # right eye
+        [70, 300, 0],   # left mouth
+        [130, 300, 0],  # right mouth
+        [50, 180, 0],   # left brow
+        [150, 180, 0],  # right brow
+        [100, 360, 0],  # chin
+        [100, 450, 0],  # neck
+    ])
+
+    sample = HandsSample(t=0.0, n_hands=2, left=hand_L, right=hand_R)
+    tracker.process(sample, face_scale_eye_line=100.0, face_points_with_neck=face_points,
+                    finger_motion_baseline=None)
+    # Hands are together (20/100 = 0.2 < 0.4 threshold) — state A or B —
+    # AND no face contact. So effective_region should be "clasp_still" or
+    # "fingers", never "none".
+    assert sample.hand_to_face_region == "none"
+    assert sample.effective_region in {"clasp_still", "fingers"}
+
+
 def test_synthesize_neck_and_chin():
     from hands_pipeline import synthesize_neck_and_chin
     le, re = np.array([0, 0, 0]), np.array([100, 0, 0])

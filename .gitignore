@@ -14,3 +14,7 @@ videos/*_events.json
 videos/*_overlay.mp4
 videos/frame_*.jpg
 videos/hands_*.jpg
+videos/*_dfi_cache.npz
+videos/*_dfi_report.png
+videos/*_dfi_events.json
+videos/*_dfi_overlay.mp4

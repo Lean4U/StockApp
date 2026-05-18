@@ -77,13 +77,23 @@ _HAND_LANDMARKER_DOWNLOAD_URL = (
 # behavioral significance of touching that region. These are heuristic
 # defaults from deception-cue literature and should be tuned with ground
 # truth.
+#
+# The matrix is split into two groups:
+#   * hand-to-face contact regions (neck / face / ear / hair) — weighted high
+#     because they correspond to direct self-grooming signals.
+#   * hand-to-hand interaction states ("fingers" / "single_hand" /
+#     "clasp_still") — weighted lower but non-zero so wringing, twiddling and
+#     single-hand fidgeting register on F(t) even when the hands never travel
+#     up to the face. The DFI spec calls these "fingers/ring manipulation".
 REGION_WEIGHTS: dict = {
-    "neck": 3.5,    # vocal-cord shielding (highest signal)
-    "face": 2.5,    # nose / mouth / eye area self-grooming
-    "ear": 2.0,     # ear-tugging / pulling
-    "hair": 1.5,    # hair-touching / smoothing
-    "fingers": 0.8, # finger / ring / nail manipulation
-    "none": 0.0,    # hand free / away from body
+    "neck": 3.5,           # vocal-cord shielding (highest signal)
+    "face": 2.5,           # nose / mouth / eye area self-grooming
+    "ear": 2.0,            # ear-tugging / pulling
+    "hair": 1.5,           # hair-touching / smoothing
+    "fingers": 0.8,        # state B — hands together + finger motion (wringing, twiddling)
+    "single_hand": 0.5,    # state D — one hand moving while apart
+    "clasp_still": 0.15,   # state A — clasped at rest (very low signal)
+    "none": 0.0,           # state C / hidden / no contact
 }
 REGION_NAMES = tuple(REGION_WEIGHTS.keys())
 
@@ -108,6 +118,10 @@ class HandsSample:
     hand_to_face_region: str = "none"
     hand_state: str = "unknown"        # 'A', 'B', 'C', 'D', 'one_hand', 'hidden'
     hand_state_code: int = -1          # numeric encoding for feature vectors
+    # Effective region for F(t) weighting: hand-to-face region if any hand is
+    # in face proximity, otherwise mapped from hand_state so that hand-to-hand
+    # fidgeting (B/D/A) still contributes.
+    effective_region: str = "none"
 
     def has_left(self) -> bool:
         return self.left is not None
@@ -414,6 +428,19 @@ class HandsTracker:
             else:
                 sample.hand_state = "D" if motion_active else "C"
                 sample.hand_state_code = 3 if motion_active else 2
+
+        # Effective region drives F(t). Hand-to-face wins if present;
+        # otherwise the 2×2 hand-state determines the weight.
+        if sample.hand_to_face_region != "none":
+            sample.effective_region = sample.hand_to_face_region
+        elif sample.hand_state == "B":
+            sample.effective_region = "fingers"
+        elif sample.hand_state == "D":
+            sample.effective_region = "single_hand"
+        elif sample.hand_state == "A":
+            sample.effective_region = "clasp_still"
+        else:
+            sample.effective_region = "none"
 
         return sample
 
