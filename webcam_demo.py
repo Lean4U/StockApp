@@ -66,6 +66,15 @@ def draw_overlay(img: np.ndarray, sample: TrapeziumSample, recording: bool, n: i
     cv2.line(img, tuple(pts[3]), tuple(pts[2]), (0, 200, 255), 2)
     for p in pts:
         cv2.circle(img, tuple(p), 4, (0, 0, 255), -1)
+    # Brow points + vertical brow-to-eye-corner guides
+    for brow, eye in (
+        (sample.left_brow, sample.left_eye),
+        (sample.right_brow, sample.right_eye),
+    ):
+        bx, by = int(brow[0]), int(brow[1])
+        ex, ey = int(eye[0]), int(eye[1])
+        cv2.line(img, (ex, ey), (ex, by), (180, 255, 0), 1)
+        cv2.circle(img, (bx, by), 4, (180, 255, 0), -1)
     cx, cy = int(sample.centroid[0]), int(sample.centroid[1])
     cv2.circle(img, (cx, cy), 5, (255, 255, 0), -1)
     cv2.putText(
@@ -182,15 +191,24 @@ def main() -> int:
                 summary = report.summary()
                 print(f"frames={summary['n_samples']}  "
                       f"duration={summary['duration_s']:.2f}s  "
-                      f"max|z|={summary['max_overall_z']:.2f}  "
-                      f"events: {summary['n_events_3sigma']}x3σ, "
-                      f"{summary['n_events_6sigma']}x6σ")
+                      f"max RMS|z|={summary['max_overall_z']:.2f}  "
+                      f"max T²σ={summary['max_t2_sigma']:.2f}")
+                print(f"events: RMS {summary['n_rms_events_3sigma']}x3σ "
+                      f"{summary['n_rms_events_6sigma']}x6σ  | "
+                      f"T² {summary['n_t2_events_3sigma']}x3σ "
+                      f"{summary['n_t2_events_6sigma']}x6σ  | "
+                      f"CUSUM {summary['n_cusum_events']}")
                 for e in summary["events"]:
-                    print(f"  {e['sigma_level']}σ  "
+                    print(f"  {e['detector'].upper():3s} {e['sigma_level']}σ  "
                           f"t=[{e['start_t']:.2f}, {e['end_t']:.2f}]s  "
                           f"({e['duration_s']:.2f}s)  "
-                          f"peak|z|={e['peak_z']:.2f}  "
+                          f"peak={e['peak_z']:.2f}σ  "
                           f"feature={e['dominant_feature']}")
+                for e in summary["cusum_events"][:20]:
+                    print(f"  CUSUM {e['direction']:>4s}  "
+                          f"t=[{e['start_t']:.2f}, {e['end_t']:.2f}]s  "
+                          f"S={e['peak_cusum']:.2f}  "
+                          f"feature={e['feature_name']}")
             elif key == ord("s"):
                 base = fit_baseline(samples)
                 if base is None:

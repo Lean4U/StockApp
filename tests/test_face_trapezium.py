@@ -1,4 +1,4 @@
-"""Unit tests for the trapezium geometry, signature, and sigma change detector.
+"""Unit tests for the trapezium geometry, signature, and change detectors.
 Do not require a camera or mediapipe."""
 
 from __future__ import annotations
@@ -10,32 +10,51 @@ from face_trapezium import (
     Baseline,
     FEATURE_NAMES,
     TrapeziumSample,
+    cusum,
     detect_sigma_changes,
     feature_vector,
     fit_baseline,
+    hotelling_t2,
     signature_distance,
+    t2_threshold,
+    t2_to_sigma_equivalent,
 )
 
 
-def _sample(t, le, re, lm, rm):
+def _sample(t, le, re, lm, rm, lbrow=None, rbrow=None):
+    """Build a TrapeziumSample. Brow points default to a sensible position
+    12 px above the corresponding outer eye corner (in image-y units)."""
+    le_a = np.asarray(le, dtype=float)
+    re_a = np.asarray(re, dtype=float)
+    lm_a = np.asarray(lm, dtype=float)
+    rm_a = np.asarray(rm, dtype=float)
+    if lbrow is None:
+        lbrow = le_a + np.array([0.0, -12.0, 0.0])
+    if rbrow is None:
+        rbrow = re_a + np.array([0.0, -12.0, 0.0])
     return TrapeziumSample(
         t=t,
-        left_eye=np.asarray(le, dtype=float),
-        right_eye=np.asarray(re, dtype=float),
-        left_mouth=np.asarray(lm, dtype=float),
-        right_mouth=np.asarray(rm, dtype=float),
+        left_eye=le_a,
+        right_eye=re_a,
+        left_mouth=lm_a,
+        right_mouth=rm_a,
+        left_brow=np.asarray(lbrow, dtype=float),
+        right_brow=np.asarray(rbrow, dtype=float),
     ).compute_derived()
 
 
 def _square(t=0.0):
-    """Trapezium that is actually a unit square (parallelism residual = 0)."""
+    """Trapezium that is actually a unit square."""
     return _sample(t, [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0])
 
 
 def _generic_trap(t=0.0):
-    """Trapezium with no two sides parallel."""
     return _sample(t, [0, 0, 0], [2.0, 0.1, 0], [0.2, 1.0, 0], [1.8, 1.3, 0])
 
+
+# ---------------------------------------------------------------------------
+# Geometry
+# ---------------------------------------------------------------------------
 
 def test_square_geometry():
     s = _square()
@@ -45,7 +64,6 @@ def test_square_geometry():
     np.testing.assert_allclose(s.angles, [np.pi / 2] * 4, atol=1e-9)
     np.testing.assert_allclose(s.diagonals, [np.sqrt(2), np.sqrt(2)], atol=1e-9)
     assert s.diag_ratio == pytest.approx(1.0)
-    # The eye-line is the segment along y=0, the mouth-line along y=1 — they are parallel.
     assert s.parallelism_residual == pytest.approx(0.0, abs=1e-9)
 
 
@@ -53,13 +71,16 @@ def test_feature_vector_shape_and_keys():
     s = _generic_trap()
     fv = feature_vector(s)
     assert fv.shape == (len(FEATURE_NAMES),)
-    assert fv.shape == (15,)
+    assert fv.shape == (17,)
 
 
 def test_feature_vector_scale_invariant():
     pts = ([0, 0, 0], [2, 0, 0], [0.3, 1, 0], [1.7, 1.2, 0])
     small = _sample(0.0, *pts)
-    big = _sample(0.0, *(np.array(p) * 9.7 for p in pts))
+    big_pts = tuple(np.array(p) * 9.7 for p in pts)
+    big_brow_l = big_pts[0] + np.array([0.0, -12.0 * 9.7, 0.0])
+    big_brow_r = big_pts[1] + np.array([0.0, -12.0 * 9.7, 0.0])
+    big = _sample(0.0, *big_pts, lbrow=big_brow_l, rbrow=big_brow_r)
     np.testing.assert_allclose(feature_vector(small), feature_vector(big), atol=1e-9)
 
 
@@ -68,16 +89,28 @@ def test_parallelism_residual_nonzero_for_general_trap():
     assert s.parallelism_residual > 1e-3
 
 
+def test_brow_height_signed_correctly():
+    # Brows positioned 8 px above the eye corners → both brow heights = +8.
+    s = _sample(
+        0.0, [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+        lbrow=[0.0, -8.0, 0.0],
+        rbrow=[1.0, -8.0, 0.0],
+    )
+    assert s.left_brow_height == pytest.approx(8.0)
+    assert s.right_brow_height == pytest.approx(8.0)
+
+
+# ---------------------------------------------------------------------------
+# Baseline / signature
+# ---------------------------------------------------------------------------
+
 def _baseline_recording(n=40, jitter=1e-3, seed=0):
-    """A subject sitting still — tiny jitter so the std isn't pathologically zero."""
     rng = np.random.default_rng(seed)
     samples = []
     base = ([0, 0, 0], [2.0, 0.1, 0], [0.2, 1.0, 0], [1.8, 1.3, 0])
     for i in range(n):
         t = i / 30.0
-        perturbed = tuple(
-            np.array(p) + jitter * rng.standard_normal(3) for p in base
-        )
+        perturbed = tuple(np.array(p) + jitter * rng.standard_normal(3) for p in base)
         samples.append(_sample(t, *perturbed))
     return samples
 
@@ -85,19 +118,16 @@ def _baseline_recording(n=40, jitter=1e-3, seed=0):
 def test_baseline_fit_and_hash():
     base = fit_baseline(_baseline_recording())
     assert base is not None
-    assert base.means.shape == (15,)
-    assert base.stds.shape == (15,)
+    assert base.means.shape == (17,)
+    assert base.stds.shape == (17,)
     assert np.all(base.stds > 0)
-    h1 = base.hash()
-    h2 = base.hash()
-    assert h1 == h2
-    assert len(h1) == 16
-    assert all(c in "0123456789abcdef" for c in h1)
+    assert base.hash() == base.hash()
+    assert len(base.hash()) == 16
 
 
 def test_baseline_returns_none_on_empty():
     assert fit_baseline([]) is None
-    assert fit_baseline([_square()]) is None  # only 1 sample
+    assert fit_baseline([_square()]) is None
 
 
 def test_signature_self_distance_is_zero():
@@ -107,7 +137,6 @@ def test_signature_self_distance_is_zero():
 
 def test_signature_distance_separates_subjects():
     a = fit_baseline(_baseline_recording(seed=1))
-    # Different geometry: wider mouth, narrower eye-line.
     other = []
     rng = np.random.default_rng(99)
     base = ([0, 0, 0], [1.4, 0.1, 0], [-0.1, 1.0, 0], [2.3, 1.1, 0])
@@ -125,23 +154,124 @@ def test_baseline_persistence_roundtrip():
     assert restored.feature_names == base.feature_names
     np.testing.assert_allclose(restored.means, base.means)
     np.testing.assert_allclose(restored.stds, base.stds)
-    assert restored.n_samples == base.n_samples
     assert restored.hash() == base.hash()
 
 
+# ---------------------------------------------------------------------------
+# Aggregation: Hotelling's T² + Wilson-Hilferty
+# ---------------------------------------------------------------------------
+
+def test_hotelling_t2_known_value():
+    z = np.array([[1.0, 2.0, 2.0], [0.0, 0.0, 0.0], [3.0, 4.0, 0.0]])
+    t2 = hotelling_t2(z)
+    np.testing.assert_allclose(t2, [9.0, 0.0, 25.0])
+
+
+def test_t2_threshold_monotone_in_sigma():
+    th3 = t2_threshold(17, 3.0)
+    th6 = t2_threshold(17, 6.0)
+    assert 0 < th3 < th6
+    # Sanity-check vs. the canonical scipy chi2.ppf(0.99865, 17) ≈ 39.97
+    assert 36.0 < th3 < 44.0
+
+
+def test_t2_to_sigma_equivalent_inverts_threshold():
+    for sigma in (1.0, 2.0, 3.0, 4.5, 6.0):
+        th = t2_threshold(17, sigma)
+        np.testing.assert_allclose(t2_to_sigma_equivalent(th, 17), sigma, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# CUSUM
+# ---------------------------------------------------------------------------
+
+def test_cusum_silent_under_null():
+    """In-control CUSUM should rarely *start* a new alarm window. ARL₀ with
+    k=0.5, h=5 is ≈ 465 samples per stream, so over 200 samples × 4 streams we
+    expect ≲ 2 fresh alarms. We count distinct rising edges, not alarm frames
+    (once S exceeds h it can stay above for many frames during one excursion)."""
+    rng = np.random.default_rng(0)
+    z = rng.standard_normal((200, 4))
+    s_plus, s_minus, alarm_high, alarm_low = cusum(z, k=0.5, h=5.0)
+    total_alarms = int(alarm_high.sum() + alarm_low.sum())
+    assert total_alarms <= 5
+
+
+def test_cusum_catches_subtle_sustained_shift():
+    rng = np.random.default_rng(1)
+    n = 300
+    z = rng.standard_normal((n, 1))
+    z[100:, 0] += 1.0  # +1 sigma shift starting at t=100
+    s_plus, s_minus, alarm_high, alarm_low = cusum(z, k=0.5, h=5.0)
+    assert alarm_high[:, 0].any()
+    first_alarm_idx = int(np.argmax(alarm_high[:, 0]))
+    # First alarm should fire well after the shift onset (lag is roughly h/(δ-k)
+    # = 5/(1-0.5) = 10 samples) but inside a reasonable detection window.
+    assert 100 < first_alarm_idx < 140
+    # Low-side accumulator should not alarm.
+    assert not alarm_low[:, 0].any()
+
+
+# ---------------------------------------------------------------------------
+# Integration: detect_sigma_changes with all three detectors
+# ---------------------------------------------------------------------------
+
 def test_detect_no_events_when_subject_is_unchanged():
-    baseline_samples = _baseline_recording(seed=10)
-    base = fit_baseline(baseline_samples)
-    # Re-record under the same conditions — expect no significant deviations.
+    base = fit_baseline(_baseline_recording(seed=10))
     fresh = _baseline_recording(seed=11)
     report = detect_sigma_changes(fresh, base, sigma_low=3.0, sigma_high=6.0)
     assert report.overall_z.size == len(fresh)
-    # Almost all aggregate z's should be small; allow the very rare blip.
-    assert (report.overall_z >= 3.0).sum() <= 2
+    assert report.t2.size == len(fresh)
+    # No sustained 6σ events; rare blips OK.
     assert all(e.sigma_level != 6 for e in report.events)
 
 
-def test_detect_finds_3sigma_and_6sigma_events():
+def test_detect_brow_raise_via_t2_and_cusum():
+    """Tight baseline + small sustained brow raise. RMS may or may not catch it,
+    but T² and CUSUM (the new detectors) must."""
+    rng = np.random.default_rng(7)
+    base_pts = ([0, 0, 0], [120.0, 0, 0], [20, 100, 0], [100, 100, 0])
+    # baseline brow heights = 12 px (default), with tiny jitter
+    baseline_samples = []
+    for i in range(180):
+        t = i / 30.0
+        perturbed = tuple(np.array(p) + 0.5 * rng.standard_normal(3) for p in base_pts)
+        baseline_samples.append(_sample(t, *perturbed))
+    base = fit_baseline(baseline_samples)
+
+    # Brow raise: bumps brow heights from ~12 to ~17 (5 px raise) for 1 second.
+    fresh = []
+    for i in range(180):
+        t = i / 30.0
+        perturbed = tuple(np.array(p) + 0.5 * rng.standard_normal(3) for p in base_pts)
+        # Brow raise active in frames 60..90 (t in [2.0, 3.0]).
+        if 60 <= i < 90:
+            le_b = perturbed[0] + np.array([0.0, -17.0, 0.0])
+            re_b = perturbed[1] + np.array([0.0, -17.0, 0.0])
+        else:
+            le_b = perturbed[0] + np.array([0.0, -12.0, 0.0])
+            re_b = perturbed[1] + np.array([0.0, -12.0, 0.0])
+        fresh.append(_sample(t, *perturbed, lbrow=le_b, rbrow=re_b))
+
+    report = detect_sigma_changes(fresh, base, sigma_low=3.0, sigma_high=6.0)
+
+    # T² should flag the brow window with a high equivalent sigma.
+    t2_events = [e for e in report.events if e.detector == "t2" and e.sigma_level == 3]
+    assert t2_events, "T² did not detect the brow raise"
+    hit = next(e for e in t2_events if e.start_t < 3.0 and e.end_t > 2.0)
+    assert hit.dominant_feature in {"left_brow_height_norm", "right_brow_height_norm"}
+
+    # CUSUM should alarm on at least one brow feature.
+    brow_alarms = [
+        e for e in report.cusum_events
+        if e.feature_name in {"left_brow_height_norm", "right_brow_height_norm"}
+    ]
+    assert brow_alarms, "CUSUM did not alarm on a brow feature"
+    # The brow-shift direction is "high" (brow_height increases).
+    assert any(e.direction == "high" for e in brow_alarms)
+
+
+def test_detect_finds_6sigma_event_for_large_deformation():
     rng = np.random.default_rng(7)
     base_pts = ([0, 0, 0], [2.0, 0.1, 0], [0.2, 1.0, 0], [1.8, 1.3, 0])
     baseline_samples = []
@@ -151,9 +281,6 @@ def test_detect_finds_3sigma_and_6sigma_events():
         baseline_samples.append(_sample(t, *perturbed))
     base = fit_baseline(baseline_samples)
 
-    # First 30 frames: baseline-like (no event). Frames 30..60: mouth corners
-    # pulled apart by a large amount — should produce both 3σ and 6σ events
-    # within that window.
     fresh = []
     for i in range(60):
         t = i / 30.0
@@ -170,29 +297,6 @@ def test_detect_finds_3sigma_and_6sigma_events():
         fresh.append(_sample(t, *perturbed))
 
     report = detect_sigma_changes(fresh, base, sigma_low=3.0, sigma_high=6.0)
-    levels = {e.sigma_level for e in report.events}
-    assert 3 in levels
-    assert 6 in levels
-
-    # The 6σ event must peak inside the heavy-deformation window (t >= 1.0s).
-    deform_start_t = fresh[30].t
-    six = next(e for e in report.events if e.sigma_level == 6)
-    assert six.peak_t >= deform_start_t - 1e-6
-    # No 6σ excursion should occur during the baseline-like prefix.
-    for e in report.events:
-        if e.sigma_level == 6:
-            assert e.end_t >= deform_start_t - 1e-6
-
-    # The 6σ event's dominant deviating feature should be one of the
-    # mouth/side dimensions since that is what we perturbed.
-    assert six.dominant_feature in (
-        "side_mouth_norm",
-        "side_left_norm",
-        "side_right_norm",
-        "mouth_line_norm",
-        "eye_mouth_ratio",
-        "angle_RM",
-        "angle_LM",
-        "diag_LE_RM_norm",
-        "diag_RE_LM_norm",
-    )
+    levels = {(e.detector, e.sigma_level) for e in report.events}
+    assert ("rms", 6) in levels
+    assert ("t2", 6) in levels

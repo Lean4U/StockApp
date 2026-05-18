@@ -89,6 +89,15 @@ if _WEBRTC_AVAILABLE:
                 cv2.line(img, tuple(pts[3]), tuple(pts[2]), (0, 200, 255), 2)
                 for p in pts:
                     cv2.circle(img, tuple(p), 4, (0, 0, 255), -1)
+                # Brow points + brow-to-eye-corner vertical guides
+                for brow, eye in (
+                    (sample.left_brow, sample.left_eye),
+                    (sample.right_brow, sample.right_eye),
+                ):
+                    bx, by = int(brow[0]), int(brow[1])
+                    ex, ey = int(eye[0]), int(eye[1])
+                    cv2.line(img, (ex, ey), (ex, by), (180, 255, 0), 1)
+                    cv2.circle(img, (bx, by), 4, (180, 255, 0), -1)
                 cx, cy = int(sample.centroid[0]), int(sample.centroid[1])
                 cv2.circle(img, (cx, cy), 5, (255, 255, 0), -1)
 
@@ -220,37 +229,63 @@ if (
         min_run_samples=min_run,
     )
 
-    s1, s2, s3 = st.columns(3)
+    s1, s2, s3, s4 = st.columns(4)
     s1.metric("Frames analyzed", report.times.size)
-    s2.metric("Max |z|", f"{report.overall_z.max():.2f}" if report.overall_z.size else "—")
+    s2.metric("Max RMS |z|", f"{report.overall_z.max():.2f}" if report.overall_z.size else "—")
     s3.metric(
-        "Events  (3σ / 6σ)",
-        f"{sum(1 for e in report.events if e.sigma_level == 3)} / "
-        f"{sum(1 for e in report.events if e.sigma_level == 6)}",
+        "Max T² (σ-equiv.)",
+        f"{report.t2_equivalent_sigma.max():.2f}" if report.t2.size else "—",
+    )
+    s4.metric(
+        "RMS / T² / CUSUM events",
+        f"{sum(1 for e in report.events if e.detector == 'rms')}"
+        f" / {sum(1 for e in report.events if e.detector == 't2')}"
+        f" / {len(report.cusum_events)}",
     )
 
     z_df = pd.DataFrame(
-        {"time": report.times, "overall_z": report.overall_z}
+        {
+            "time": report.times,
+            "RMS aggregate |z|": report.overall_z,
+            "T² (σ-equivalent)": report.t2_equivalent_sigma,
+        }
     ).set_index("time")
     st.line_chart(z_df, height=240)
 
     if report.events:
-        st.write("Detected change windows:")
+        st.write("Multivariate change windows (RMS + T²):")
         st.table(
             [
                 {
+                    "detector": e.detector.upper(),
                     "level": f"{e.sigma_level}σ",
                     "start (s)": f"{e.start_t:.2f}",
                     "end (s)":   f"{e.end_t:.2f}",
                     "duration (s)": f"{e.duration_s:.2f}",
-                    "peak |z|": f"{e.peak_z:.2f}",
+                    "peak (σ)": f"{e.peak_z:.2f}",
                     "dominant feature": e.dominant_feature,
                 }
                 for e in report.events
             ]
         )
     else:
-        st.success("No samples exceeded the configured sigma thresholds.")
+        st.success("No RMS or T² windows exceeded the configured thresholds.")
+
+    if report.cusum_events:
+        st.write(f"Per-feature CUSUM alarms (k={report.cusum_k}, h={report.cusum_h}):")
+        st.table(
+            [
+                {
+                    "feature": e.feature_name,
+                    "direction": e.direction,
+                    "start (s)": f"{e.start_t:.2f}",
+                    "end (s)":   f"{e.end_t:.2f}",
+                    "duration (s)": f"{e.duration_s:.2f}",
+                    "peak CUSUM": f"{e.peak_cusum:.2f}",
+                }
+                for e in report.cusum_events[:25]
+            ]
+        )
 
     feat_df = pd.DataFrame(report.per_feature_z, columns=list(FEATURE_NAMES))
     feat_df["time"] = report.times
