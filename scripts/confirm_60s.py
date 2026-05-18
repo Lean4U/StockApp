@@ -17,8 +17,16 @@ eyebrow landmarks with:
   * a labelled **head turn** (rigid rotation about the world-y axis) at t = 28 s
     (σ = 1.0 s, peak yaw = 20°). The rotation is applied to all 6 landmarks
     rigidly, so it should affect ONLY the head-pose features
-    (`yaw_proxy`, `pitch_proxy`, `roll_proxy`) and leave the 17 geometric
+    (`yaw_proxy`, `pitch_proxy`, `roll_proxy`) and leave the geometric
     features untouched — verifying the face-plane rotation invariance.
+  * a **glare burst** at t = 15 s — 3 isolated frames with a 50-pixel
+    outlier on the right outer eye corner. Tests the robustness layer:
+    Huber clipping + rolling-variance reliability weighting must prevent
+    these single-frame outliers from triggering a sustained 6σ event.
+  * a **cigarette-like one-sided occluder** at t = 47 s (σ = 0.6 s, right
+    mouth corner pulled +10 px laterally and -2 px up). Tests the new
+    asymmetric-occlusion feature: `mouth_offset_norm` should dominate the
+    detection rather than the symmetric `side_mouth_norm` channel.
 
 The first 10 s are used as the enrollment baseline. The remaining 50 s are
 overlaid against that baseline by `detect_sigma_changes`, which now runs
@@ -100,6 +108,19 @@ def build_recording(seed: int = 42):
     env_squint = gaussian_envelope(t, 44.0, 0.8)
     env_yawn = gaussian_envelope(t, 52.0, 1.5)
     env_turn = gaussian_envelope(t, 28.0, 1.0)
+    env_cig = gaussian_envelope(t, 47.0, 0.6)
+
+    # Glare burst: 3 single-frame outliers on the right eye corner.
+    glare_frames = [int(15.0 * FPS), int(15.0 * FPS) + 4, int(15.0 * FPS) + 9]
+    glare_mask = np.zeros(N)
+    for gf in glare_frames:
+        if 0 <= gf < N:
+            glare_mask[gf] = 1.0
+    re[:, 0] += 50.0 * glare_mask
+
+    # Cigarette in image-right mouth corner: pulled +10 px out, -2 px up.
+    rm[:, 0] += +10.0 * env_cig
+    rm[:, 1] += -2.0 * env_cig
 
     lm[:, 0] += -8.0 * env_smile
     lm[:, 1] += -4.0 * env_smile
@@ -147,6 +168,7 @@ GROUND_TRUTH = [
     ("head turn",  28.0, 1.0),
     ("brow raise", 35.0, 1.0),
     ("squint",     44.0, 0.8),
+    ("cigarette",  47.0, 0.6),
     ("yawn",       52.0, 1.5),
 ]
 

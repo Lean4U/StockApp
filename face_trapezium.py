@@ -110,6 +110,8 @@ class TrapeziumSample:
     diag_ratio: float = 0.0
     left_brow_height: float = 0.0   # face-frame v-distance from eye corner to brow point
     right_brow_height: float = 0.0
+    mouth_offset_norm: float = 0.0  # signed lateral offset of mouth midpoint vs. eye midpoint
+                                    # in face-frame x (asymmetric-occlusion indicator)
     # Head-pose proxies, derived from the 4-vertex best-fit plane.
     yaw_proxy: float = 0.0    # atan2(n_x, n_z) — rotation about face vertical axis
     pitch_proxy: float = 0.0  # atan2(-n_y, ||n_xz||) — rotation about face horizontal axis
@@ -203,6 +205,17 @@ class TrapeziumSample:
         self.left_brow_height = float(le2[1] - lb2[1])
         self.right_brow_height = float(re2[1] - rb2[1])
 
+        # Asymmetric-occlusion indicator: lateral offset of the mouth midpoint
+        # vs. the eye midpoint in face-frame x. For a roughly symmetric face
+        # the mouth sits directly under the eye-line midpoint, so this stays
+        # near zero. A cigarette / pen / similar device pulling one mouth
+        # corner laterally shifts the mouth midpoint sideways relative to the
+        # eyes, driving this feature away from its baseline value.
+        eye_mid_x = 0.5 * (le2[0] + re2[0])
+        mouth_mid_x = 0.5 * (lm2[0] + rm2[0])
+        scale = self.eye_line if self.eye_line > 0 else 1.0
+        self.mouth_offset_norm = float((mouth_mid_x - eye_mid_x) / scale)
+
         # --- 5. Head-pose proxies (smooth functions of head orientation) -----
         self.yaw_proxy = float(np.arctan2(n[0], n[2]))
         self.pitch_proxy = float(np.arctan2(-n[1], np.sqrt(n[0] ** 2 + n[2] ** 2)))
@@ -274,6 +287,7 @@ FEATURE_NAMES: tuple = (
     "eye_line_norm", "mouth_line_norm", "eye_mouth_ratio",
     "parallelism_residual",
     "left_brow_height_norm", "right_brow_height_norm",
+    "mouth_offset_norm",
     "yaw_proxy", "pitch_proxy", "roll_proxy",
     "planarity_residual_3d",
 )
@@ -309,6 +323,7 @@ def feature_vector(sample: TrapeziumSample) -> np.ndarray:
         sample.parallelism_residual,
         sample.left_brow_height / eye_line,
         sample.right_brow_height / eye_line,
+        sample.mouth_offset_norm,
         sample.yaw_proxy,
         sample.pitch_proxy,
         sample.roll_proxy,
@@ -355,14 +370,31 @@ class Baseline:
 
 
 _STD_FLOOR = 1e-4
+_MAD_TO_STD = 1.4826  # consistent scaling so 1.4826 · MAD ≈ σ under Gaussian noise
 
 
-def fit_baseline(samples: Sequence[TrapeziumSample]) -> Optional[Baseline]:
+def fit_baseline(
+    samples: Sequence[TrapeziumSample],
+    robust: bool = True,
+) -> Optional[Baseline]:
+    """Compute the per-feature baseline statistics from an enrollment recording.
+
+    With ``robust=True`` (default), the centre is the median and the scale is
+    1.4826 · MAD. These break-down at 50% contamination, so occasional
+    enrolment outliers (lens glare, single-frame mis-detections, a startled
+    blink) do not poison the baseline. Set ``robust=False`` to use the
+    classical mean / std instead (matches the previous behaviour exactly).
+    """
     if len(samples) < 2:
         return None
     features = np.stack([feature_vector(s) for s in samples])
-    means = features.mean(axis=0)
-    stds = features.std(axis=0)
+    if robust:
+        means = np.median(features, axis=0)
+        mad = np.median(np.abs(features - means), axis=0)
+        stds = _MAD_TO_STD * mad
+    else:
+        means = features.mean(axis=0)
+        stds = features.std(axis=0)
     stds = np.where(stds < _STD_FLOOR, _STD_FLOOR, stds)
     duration = float(samples[-1].t - samples[0].t)
     return Baseline(
@@ -405,6 +437,57 @@ def t2_to_sigma_equivalent(t2: np.ndarray, n_features: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Robustness layer: Huber clipping + rolling-variance reliability weighting
+# ---------------------------------------------------------------------------
+
+def huber_clip(z: np.ndarray, cap: float = 8.0) -> np.ndarray:
+    """Clip per-feature z-scores to ±cap. Prevents a single bad frame (e.g.
+    lens glare) from blowing up the T² aggregate while still preserving
+    the alarm signal for genuinely shifted features."""
+    return np.clip(np.asarray(z, dtype=float), -cap, cap)
+
+
+def rolling_z_variance(per_feature_z: np.ndarray, window: int = 30) -> np.ndarray:
+    """Centered rolling variance of the per-feature z-scores, computed via
+    cumulative sums so cost is O(n·k) rather than O(n·k·window).
+
+    Under H0 (subject behaving like baseline), the rolling variance of each
+    z-score channel is ≈ 1. A sustained mean shift (e.g. smile, brow raise)
+    keeps the variance near 1 — only the centre moves. Tracking *noise*
+    (lens glare flicker, smoke shimmer, mid-frame landmark dropout) blows
+    the variance up to many times unity, and that is what
+    `reliability_weights` then down-weights.
+    """
+    z = np.atleast_2d(np.asarray(per_feature_z, dtype=float))
+    n, k = z.shape
+    if n < 2 or window < 2:
+        return np.ones((n, k))
+
+    half = max(window // 2, 1)
+    z_pad = np.pad(z, ((half, half), (0, 0)), mode="edge")
+    cs = np.cumsum(z_pad, axis=0)
+    cs2 = np.cumsum(z_pad * z_pad, axis=0)
+    win = 2 * half  # actual window length after symmetric padding
+    sum_x = cs[win:win + n] - cs[:n]
+    sum_x2 = cs2[win:win + n] - cs2[:n]
+    mean = sum_x / win
+    var = sum_x2 / win - mean * mean
+    return np.maximum(var, 0.0)
+
+
+def reliability_weights(rolling_var: np.ndarray, threshold: float = 5.0) -> np.ndarray:
+    """Per-frame, per-feature reliability weight in (0, 1].
+
+    Weight = ``threshold / max(rolling_var, threshold)``. A feature whose
+    rolling z-variance stays at the expected unit level keeps weight = 1; a
+    feature whose rolling z-variance climbs to 5× the threshold drops to
+    weight = 0.2. Hands down-weighting is monotonic and smooth — there is no
+    binary "on/off" mask that would create jumps in the aggregate test.
+    """
+    return threshold / np.maximum(np.asarray(rolling_var, dtype=float), threshold)
+
+
+# ---------------------------------------------------------------------------
 # Per-feature tabular CUSUM
 # ---------------------------------------------------------------------------
 
@@ -412,6 +495,8 @@ def cusum(
     per_feature_z: np.ndarray,
     k: float = 0.5,
     h: float = 5.0,
+    weights: Optional[np.ndarray] = None,
+    update_threshold: float = 0.5,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Tabular CUSUM with reset-after-alarm, applied independently per feature.
 
@@ -432,16 +517,29 @@ def cusum(
     ``(n_samples, n_features)``. ``alarm_high[i,j]`` is True iff the
     positive-side S⁺ crossed ``h`` at frame ``i``; ``alarm_low[i,j]`` is the
     symmetric flag for negative-side shifts.
+
+    Optional per-frame reliability ``weights`` (shape ``(n_samples,
+    n_features)`` or broadcastable) freeze the accumulator on any feature /
+    frame where the weight is below ``update_threshold`` — the previous S
+    value carries forward unchanged. This prevents unreliable tracking
+    intervals (e.g. heavy glare bursts) from contributing CUSUM mass.
     """
     z = np.atleast_2d(per_feature_z)
     n, p = z.shape
+    if weights is None:
+        update_mask = np.ones((n, p), dtype=bool)
+    else:
+        update_mask = np.asarray(weights, dtype=float) >= update_threshold
+        if update_mask.ndim == 1:
+            update_mask = np.broadcast_to(update_mask, (n, p))
     s_plus = np.zeros((n, p))
     s_minus = np.zeros((n, p))
     alarm_high = np.zeros((n, p), dtype=bool)
     alarm_low = np.zeros((n, p), dtype=bool)
     for i in range(1, n):
-        cur_p = np.maximum(0.0, s_plus[i - 1] + z[i] - k)
-        cur_m = np.maximum(0.0, s_minus[i - 1] - z[i] - k)
+        upd = update_mask[i]
+        cur_p = np.where(upd, np.maximum(0.0, s_plus[i - 1] + z[i] - k), s_plus[i - 1])
+        cur_m = np.where(upd, np.maximum(0.0, s_minus[i - 1] - z[i] - k), s_minus[i - 1])
         fire_p = cur_p > h
         fire_m = cur_m > h
         alarm_high[i] = fire_p
@@ -508,7 +606,9 @@ class CusumEvent:
 @dataclass
 class ChangeReport:
     times: np.ndarray
-    per_feature_z: np.ndarray
+    per_feature_z: np.ndarray              # raw z-scores (un-clipped, un-weighted)
+    per_feature_z_clipped: np.ndarray      # after Huber clipping
+    per_feature_weights: np.ndarray        # reliability weights in (0, 1]
     # RMS aggregate detector
     overall_z: np.ndarray
     # Hotelling's T² detector
@@ -527,6 +627,10 @@ class ChangeReport:
     # Thresholds in use
     sigma_low: float
     sigma_high: float
+    # Robustness knobs in effect
+    huber_cap: float
+    reliability_window: int
+    reliability_threshold: float
 
     def summary(self) -> dict:
         return {
@@ -569,12 +673,30 @@ def detect_sigma_changes(
     min_run_samples: int = 2,
     cusum_k: float = 0.5,
     cusum_h: float = 5.0,
+    huber_cap: float = 8.0,
+    reliability_window: int = 30,
+    reliability_threshold: float = 5.0,
 ) -> ChangeReport:
     """Run all three change detectors against ``baseline`` and return a report.
 
-    * RMS aggregate ``|z|`` → 3σ / 6σ events.
-    * Hotelling's T² ``= Σ z²`` → equivalent-sigma events via Wilson-Hilferty.
-    * Per-feature tabular CUSUM with slack ``cusum_k`` and decision ``cusum_h``.
+    The robustness layer applies in order:
+
+    1. **Huber clipping** — per-feature z-scores are clipped to ±``huber_cap``
+       before any aggregation. A single bad frame (e.g. lens glare giving a
+       50-σ outlier on one feature) can no longer monopolize T² or RMS.
+    2. **Reliability weights** — each feature gets a per-frame weight in
+       (0, 1] derived from its rolling z-variance over the last
+       ``reliability_window`` frames. A feature with stable z (a real shift)
+       keeps full weight; a feature with erratic z (occlusion noise) is
+       smoothly down-weighted. Weights apply to the RMS aggregate, to T², and
+       freeze the CUSUM accumulator for that feature on frames where its
+       weight drops below 0.5.
+
+    Detectors:
+      * RMS aggregate ``sqrt(Σ w·z̃² / Σ w)`` → 3σ / 6σ events.
+      * Hotelling's T² ``Σ w·z̃²`` → equivalent-σ events (threshold uses the
+        full feature count for conservatism).
+      * Per-feature tabular CUSUM with reset-after-alarm.
     """
     n_features = baseline.means.size
 
@@ -582,6 +704,8 @@ def detect_sigma_changes(
         return ChangeReport(
             times=np.zeros(0),
             per_feature_z=np.zeros((0, n_features)),
+            per_feature_z_clipped=np.zeros((0, n_features)),
+            per_feature_weights=np.zeros((0, n_features)),
             overall_z=np.zeros(0),
             t2=np.zeros(0),
             t2_equivalent_sigma=np.zeros(0),
@@ -595,18 +719,32 @@ def detect_sigma_changes(
             cusum_events=[],
             sigma_low=sigma_low,
             sigma_high=sigma_high,
+            huber_cap=huber_cap,
+            reliability_window=reliability_window,
+            reliability_threshold=reliability_threshold,
         )
 
     features = np.stack([feature_vector(s) for s in samples])
     z = (features - baseline.means) / baseline.stds
-    overall_z = np.sqrt(np.mean(z * z, axis=1))
+    z_clipped = huber_clip(z, cap=huber_cap)
 
-    t2 = hotelling_t2(z)
+    # Reliability weights from rolling variance of the clipped z-scores.
+    rvar = rolling_z_variance(z_clipped, window=reliability_window)
+    weights = reliability_weights(rvar, threshold=reliability_threshold)
+
+    # Weighted aggregates.
+    wz2 = weights * z_clipped * z_clipped
+    sum_w = weights.sum(axis=1)
+    sum_w_safe = np.maximum(sum_w, 1e-6)
+    overall_z = np.sqrt(wz2.sum(axis=1) / sum_w_safe)
+    t2 = wz2.sum(axis=1)
     t2_eq_sigma = t2_to_sigma_equivalent(t2, n_features)
     t2_low_thresh = t2_threshold(n_features, sigma_low)
     t2_high_thresh = t2_threshold(n_features, sigma_high)
 
-    s_plus, s_minus, alarm_high, alarm_low = cusum(z, k=cusum_k, h=cusum_h)
+    s_plus, s_minus, alarm_high, alarm_low = cusum(
+        z_clipped, k=cusum_k, h=cusum_h, weights=weights,
+    )
 
     times = np.array([s.t for s in samples])
 
@@ -618,7 +756,7 @@ def detect_sigma_changes(
             window = overall_z[s_idx:e_idx]
             peak_local = int(np.argmax(window))
             peak_idx = s_idx + peak_local
-            dom = int(np.argmax(np.abs(z[peak_idx])))
+            dom = int(np.argmax(np.abs(z_clipped[peak_idx])))
             events.append(
                 ChangeEvent(
                     detector="rms",
@@ -638,7 +776,7 @@ def detect_sigma_changes(
             window = t2_eq_sigma[s_idx:e_idx]
             peak_local = int(np.argmax(window))
             peak_idx = s_idx + peak_local
-            dom = int(np.argmax(np.abs(z[peak_idx])))
+            dom = int(np.argmax(np.abs(z_clipped[peak_idx])))
             events.append(
                 ChangeEvent(
                     detector="t2",
@@ -693,6 +831,8 @@ def detect_sigma_changes(
     return ChangeReport(
         times=times,
         per_feature_z=z,
+        per_feature_z_clipped=z_clipped,
+        per_feature_weights=weights,
         overall_z=overall_z,
         t2=t2,
         t2_equivalent_sigma=t2_eq_sigma,
@@ -706,4 +846,7 @@ def detect_sigma_changes(
         cusum_events=cusum_events,
         sigma_low=sigma_low,
         sigma_high=sigma_high,
+        huber_cap=huber_cap,
+        reliability_window=reliability_window,
+        reliability_threshold=reliability_threshold,
     )

@@ -15,6 +15,9 @@ from face_trapezium import (
     feature_vector,
     fit_baseline,
     hotelling_t2,
+    huber_clip,
+    reliability_weights,
+    rolling_z_variance,
     signature_distance,
     t2_threshold,
     t2_to_sigma_equivalent,
@@ -71,7 +74,7 @@ def test_feature_vector_shape_and_keys():
     s = _generic_trap()
     fv = feature_vector(s)
     assert fv.shape == (len(FEATURE_NAMES),)
-    assert fv.shape == (21,)
+    assert fv.shape == (22,)
 
 
 def test_feature_vector_scale_invariant():
@@ -210,8 +213,8 @@ def _baseline_recording(n=40, jitter=1e-3, seed=0):
 def test_baseline_fit_and_hash():
     base = fit_baseline(_baseline_recording())
     assert base is not None
-    assert base.means.shape == (21,)
-    assert base.stds.shape == (21,)
+    assert base.means.shape == (22,)
+    assert base.stds.shape == (22,)
     assert np.all(base.stds > 0)
     assert base.hash() == base.hash()
     assert len(base.hash()) == 16
@@ -392,3 +395,125 @@ def test_detect_finds_6sigma_event_for_large_deformation():
     levels = {(e.detector, e.sigma_level) for e in report.events}
     assert ("rms", 6) in levels
     assert ("t2", 6) in levels
+
+
+# ---------------------------------------------------------------------------
+# Robustness layer: median/MAD baseline, Huber clip, reliability weights,
+# and the mouth_offset_norm asymmetric-occlusion feature.
+# ---------------------------------------------------------------------------
+
+def test_mouth_offset_zero_for_symmetric_face():
+    s = _sample_from_landmarks(_build_face_landmarks())
+    assert abs(s.mouth_offset_norm) < 1e-9
+
+
+def test_mouth_offset_signed_for_one_sided_occluder():
+    lm = _build_face_landmarks()
+    # Cigarette in image-right corner pulls right_mouth laterally outward.
+    lm["rm"] = lm["rm"] + np.array([8.0, 0.0, 0.0])
+    s = _sample_from_landmarks(lm)
+    # Mouth midpoint shifts to image-right ⇒ positive offset in face-frame x.
+    assert s.mouth_offset_norm > 0.02
+
+
+def test_robust_baseline_ignores_enrollment_outliers():
+    """Inject 5% extreme outliers into the enrollment recording. The robust
+    median/MAD baseline should ignore them; the classical mean/std baseline
+    should be poisoned (very inflated std → desensitised detector)."""
+    rng = np.random.default_rng(11)
+    samples = []
+    base = ([0, 0, 0], [120.0, 0, 0], [20, 100, 0], [100, 100, 0])
+    for i in range(200):
+        t = i / 30.0
+        perturbed = tuple(np.array(p) + 0.5 * rng.standard_normal(3) for p in base)
+        # 5% of frames have a huge glare-style outlier on the right eye corner.
+        if i % 20 == 0:
+            perturbed = list(perturbed)
+            perturbed[1] = perturbed[1] + np.array([40.0, 30.0, 0.0])
+            perturbed = tuple(perturbed)
+        samples.append(_sample(t, *perturbed))
+
+    robust = fit_baseline(samples, robust=True)
+    classical = fit_baseline(samples, robust=False)
+    # Find a feature affected by the outlier (side_right_norm or similar) and
+    # confirm the robust std is much smaller than the classical std.
+    j = FEATURE_NAMES.index("side_right_norm")
+    assert classical.stds[j] > 5 * robust.stds[j]
+
+
+def test_huber_clip_caps_outliers():
+    z = np.array([[0.0, 12.0, -50.0, 1.5]])
+    out = huber_clip(z, cap=8.0)
+    np.testing.assert_allclose(out, [[0.0, 8.0, -8.0, 1.5]])
+
+
+def test_reliability_weights_full_under_baseline():
+    rng = np.random.default_rng(3)
+    z = rng.standard_normal((200, 5))
+    rvar = rolling_z_variance(z, window=30)
+    w = reliability_weights(rvar, threshold=5.0)
+    # Under H0 the rolling z-variance hovers around 1, well under threshold ⇒
+    # weights stay at 1.
+    assert w.mean() > 0.95
+
+
+def test_reliability_weights_drop_for_noisy_feature():
+    rng = np.random.default_rng(4)
+    n = 200
+    z = rng.standard_normal((n, 2))
+    # Make feature 0 very noisy in the middle third of the recording.
+    z[60:140, 0] = rng.standard_normal(80) * 8.0
+    rvar = rolling_z_variance(z, window=30)
+    w = reliability_weights(rvar, threshold=5.0)
+    # Feature 0's weight in the noisy band should drop well below 1; feature
+    # 1's weight should stay near 1 throughout.
+    assert w[60:140, 0].mean() < 0.4
+    assert w[:, 1].mean() > 0.9
+
+
+def test_huber_clip_blocks_single_frame_glare_in_t2():
+    """A single-frame extreme outlier on one feature is capped by Huber clip
+    so the per-frame T² stays under the 6-sigma threshold."""
+    rng = np.random.default_rng(5)
+    base_pts = ([0, 0, 0], [120.0, 0, 0], [20, 100, 0], [100, 100, 0])
+    baseline_samples = []
+    for i in range(120):
+        t = i / 30.0
+        perturbed = tuple(np.array(p) + 0.5 * rng.standard_normal(3) for p in base_pts)
+        baseline_samples.append(_sample(t, *perturbed))
+    base = fit_baseline(baseline_samples)
+
+    # 60-frame clean recording, but at frame 30 inject a 60-pixel glare on the
+    # right eye corner.
+    fresh = []
+    for i in range(60):
+        t = i / 30.0
+        perturbed = tuple(np.array(p) + 0.5 * rng.standard_normal(3) for p in base_pts)
+        if i == 30:
+            perturbed = list(perturbed)
+            perturbed[1] = perturbed[1] + np.array([60.0, 0.0, 0.0])
+            perturbed = tuple(perturbed)
+        fresh.append(_sample(t, *perturbed))
+
+    # With Huber cap = 8, the peak T² σ-equivalent on the glare frame is bounded.
+    report = detect_sigma_changes(fresh, base, sigma_low=3.0, sigma_high=6.0,
+                                  huber_cap=8.0, min_run_samples=1)
+    # Compare with the robustness layer fully disabled (no Huber clipping, no
+    # reliability down-weighting). The unrobust pipeline must produce a much
+    # larger T² σ-equivalent on the glare frame.
+    report_unrobust = detect_sigma_changes(
+        fresh, base, sigma_low=3.0, sigma_high=6.0,
+        huber_cap=1e9, reliability_threshold=1e9, min_run_samples=1,
+    )
+    glare_idx = 30
+    peak_robust = report.t2_equivalent_sigma[glare_idx]
+    peak_unrobust = report_unrobust.t2_equivalent_sigma[glare_idx]
+    assert peak_robust < 0.5 * peak_unrobust
+
+    # The robust pipeline must not flag a *sustained* 6σ event from a single-
+    # frame glare. The unrobust pipeline, by contrast, would.
+    sustained_6sigma_robust = [
+        e for e in report.events
+        if e.detector == "t2" and e.sigma_level == 6 and e.duration_s > 0.1
+    ]
+    assert sustained_6sigma_robust == []
