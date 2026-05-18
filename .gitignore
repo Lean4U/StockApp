@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 signatures.json
+confirm_60s.png
+confirm_60s_data.npz
