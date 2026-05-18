@@ -71,7 +71,7 @@ def test_feature_vector_shape_and_keys():
     s = _generic_trap()
     fv = feature_vector(s)
     assert fv.shape == (len(FEATURE_NAMES),)
-    assert fv.shape == (17,)
+    assert fv.shape == (21,)
 
 
 def test_feature_vector_scale_invariant():
@@ -81,7 +81,11 @@ def test_feature_vector_scale_invariant():
     big_brow_l = big_pts[0] + np.array([0.0, -12.0 * 9.7, 0.0])
     big_brow_r = big_pts[1] + np.array([0.0, -12.0 * 9.7, 0.0])
     big = _sample(0.0, *big_pts, lbrow=big_brow_l, rbrow=big_brow_r)
-    np.testing.assert_allclose(feature_vector(small), feature_vector(big), atol=1e-9)
+    # Pose proxies don't scale with overall size — exclude them when comparing.
+    # The geometric features and brow ratios should match exactly.
+    small_fv = feature_vector(small)
+    big_fv = feature_vector(big)
+    np.testing.assert_allclose(small_fv[:17], big_fv[:17], atol=1e-9)
 
 
 def test_parallelism_residual_nonzero_for_general_trap():
@@ -98,6 +102,94 @@ def test_brow_height_signed_correctly():
     )
     assert s.left_brow_height == pytest.approx(8.0)
     assert s.right_brow_height == pytest.approx(8.0)
+
+
+# ---------------------------------------------------------------------------
+# Head rotation: face-plane projection makes geometry rotation-invariant
+# ---------------------------------------------------------------------------
+
+def _rotation_y(angle_rad: float) -> np.ndarray:
+    c, s = np.cos(angle_rad), np.sin(angle_rad)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
+def _rotation_x(angle_rad: float) -> np.ndarray:
+    c, s = np.cos(angle_rad), np.sin(angle_rad)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def _rotation_z(angle_rad: float) -> np.ndarray:
+    c, s = np.cos(angle_rad), np.sin(angle_rad)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def _build_face_landmarks():
+    """Six 3D landmarks for an upright face on the z=0 plane."""
+    return {
+        "le": np.array([-60.0, 0.0, 0.0]),
+        "re": np.array([+60.0, 0.0, 0.0]),
+        "lm": np.array([-40.0, 110.0, 0.0]),
+        "rm": np.array([+40.0, 110.0, 0.0]),
+        "lb": np.array([-60.0, -12.0, 0.0]),
+        "rb": np.array([+60.0, -12.0, 0.0]),
+    }
+
+
+def _sample_from_landmarks(lm: dict, t: float = 0.0):
+    return _sample(t, lm["le"], lm["re"], lm["lm"], lm["rm"], lbrow=lm["lb"], rbrow=lm["rb"])
+
+
+def test_geometric_features_rotation_invariant():
+    """Rotating all 6 landmarks rigidly should leave the 17 geometric features
+    untouched and only perturb the pose channels."""
+    upright = _sample_from_landmarks(_build_face_landmarks())
+    fv_upright = feature_vector(upright)
+
+    for R in (_rotation_y(0.4), _rotation_x(-0.3), _rotation_z(0.25),
+              _rotation_y(0.4) @ _rotation_x(-0.3) @ _rotation_z(0.25)):
+        lm = _build_face_landmarks()
+        rotated = {k: R @ p for k, p in lm.items()}
+        s = _sample_from_landmarks(rotated)
+        fv = feature_vector(s)
+        # Geometric channels (sides, angles, diagonals, ratios, brow heights):
+        np.testing.assert_allclose(fv[:17], fv_upright[:17], atol=1e-9,
+                                   err_msg=f"geometric features changed under rotation R")
+
+
+def test_yaw_proxy_changes_with_head_turn():
+    upright = _sample_from_landmarks(_build_face_landmarks())
+    assert abs(upright.yaw_proxy) < 1e-6
+    assert abs(upright.pitch_proxy) < 1e-6
+    assert abs(upright.roll_proxy) < 1e-6
+
+    # 30° yaw (rotation about world-y, which is the face's vertical axis).
+    R = _rotation_y(np.deg2rad(30.0))
+    lm = _build_face_landmarks()
+    turned = _sample_from_landmarks({k: R @ p for k, p in lm.items()})
+    assert abs(turned.yaw_proxy) == pytest.approx(np.deg2rad(30.0), abs=1e-6)
+    assert abs(turned.pitch_proxy) < 1e-6
+    assert abs(turned.roll_proxy) < 1e-6
+
+
+def test_roll_proxy_picks_up_image_plane_tilt():
+    R = _rotation_z(np.deg2rad(15.0))
+    lm = _build_face_landmarks()
+    tilted = _sample_from_landmarks({k: R @ p for k, p in lm.items()})
+    assert tilted.roll_proxy == pytest.approx(np.deg2rad(15.0), abs=1e-6)
+    assert abs(tilted.yaw_proxy) < 1e-6
+    assert abs(tilted.pitch_proxy) < 1e-6
+
+
+def test_planarity_residual_zero_for_coplanar_vertices():
+    s = _sample_from_landmarks(_build_face_landmarks())
+    assert s.planarity_residual_3d == pytest.approx(0.0, abs=1e-9)
+
+
+def test_planarity_residual_nonzero_for_non_coplanar_vertices():
+    lm = _build_face_landmarks()
+    lm["lm"] = lm["lm"] + np.array([0.0, 0.0, 8.0])  # push left-mouth out of plane
+    s = _sample_from_landmarks(lm)
+    assert s.planarity_residual_3d > 1e-3
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +210,8 @@ def _baseline_recording(n=40, jitter=1e-3, seed=0):
 def test_baseline_fit_and_hash():
     base = fit_baseline(_baseline_recording())
     assert base is not None
-    assert base.means.shape == (17,)
-    assert base.stds.shape == (17,)
+    assert base.means.shape == (21,)
+    assert base.stds.shape == (21,)
     assert np.all(base.stds > 0)
     assert base.hash() == base.hash()
     assert len(base.hash()) == 16

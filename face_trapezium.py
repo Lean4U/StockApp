@@ -93,32 +93,77 @@ class TrapeziumSample:
     left_brow: np.ndarray = field(default_factory=lambda: np.zeros(3))
     right_brow: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
-    # Dimensional characteristics, populated by compute_derived().
+    # Dimensional characteristics, populated by compute_derived(). All values
+    # below are expressed in the **face-plane 2D frame** (best-fit plane through
+    # the 4 corner vertices, with u along the eye-line and v from eye-line
+    # toward mouth) so they are invariant to head rotation in 3D.
     sides: np.ndarray = field(default_factory=lambda: np.zeros(4))
     angles: np.ndarray = field(default_factory=lambda: np.zeros(4))
     diagonals: np.ndarray = field(default_factory=lambda: np.zeros(2))
     perimeter: float = 0.0
     area: float = 0.0
-    centroid: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    centroid: np.ndarray = field(default_factory=lambda: np.zeros(3))  # 3D image-frame centroid (for overlay only)
     eye_line: float = 0.0
     mouth_line: float = 0.0
     eye_mouth_ratio: float = 0.0
     parallelism_residual: float = 0.0
     diag_ratio: float = 0.0
-    left_brow_height: float = 0.0   # px above the corresponding outer eye corner (image-y)
+    left_brow_height: float = 0.0   # face-frame v-distance from eye corner to brow point
     right_brow_height: float = 0.0
+    # Head-pose proxies, derived from the 4-vertex best-fit plane.
+    yaw_proxy: float = 0.0    # atan2(n_x, n_z) — rotation about face vertical axis
+    pitch_proxy: float = 0.0  # atan2(-n_y, ||n_xz||) — rotation about face horizontal axis
+    roll_proxy: float = 0.0   # atan2(u_y, u_x) — in-image-plane rotation of the eye-line
+    planarity_residual_3d: float = 0.0  # smallest-/largest-SV ratio from the SVD plane fit
 
     def vertices(self) -> List[np.ndarray]:
         return [self.left_eye, self.right_eye, self.right_mouth, self.left_mouth]
 
     def compute_derived(self) -> "TrapeziumSample":
-        v = self.vertices()
-        self.sides = np.array([np.linalg.norm(v[(i + 1) % 4] - v[i]) for i in range(4)])
+        # --- 1. Best-fit plane through the 4 corner vertices (SVD) -----------
+        pts = np.stack(self.vertices())
+        centroid_3d = pts.mean(axis=0)
+        centered = pts - centroid_3d
+        _, S_svd, Vt = np.linalg.svd(centered, full_matrices=False)
+        n = Vt[-1]
+        n_norm = np.linalg.norm(n)
+        n = n / n_norm if n_norm > 1e-12 else np.array([0.0, 0.0, 1.0])
+
+        # --- 2. In-plane orthonormal basis (u along eye-line, v toward mouth) -
+        eye_dir = self.right_eye - self.left_eye
+        u = eye_dir - np.dot(eye_dir, n) * n
+        u_norm = np.linalg.norm(u)
+        u = u / u_norm if u_norm > 1e-9 else np.array([1.0, 0.0, 0.0])
+        v = np.cross(n, u)
+        # Orient n (and v with it) so v points from eye-line toward mouth.
+        mouth_center = 0.5 * (self.left_mouth + self.right_mouth)
+        eye_center = 0.5 * (self.left_eye + self.right_eye)
+        if np.dot(v, mouth_center - eye_center) < 0:
+            n = -n
+            v = -v
+
+        # --- 3. Project all 6 landmarks onto (u, v) ---------------------------
+        def proj(p: np.ndarray) -> np.ndarray:
+            d = p - centroid_3d
+            return np.array([float(np.dot(d, u)), float(np.dot(d, v))])
+
+        le2 = proj(self.left_eye)
+        re2 = proj(self.right_eye)
+        rm2 = proj(self.right_mouth)
+        lm2 = proj(self.left_mouth)
+        lb2 = proj(self.left_brow)
+        rb2 = proj(self.right_brow)
+        v2 = [le2, re2, rm2, lm2]
+
+        # --- 4. Trapezium dimensional characteristics in the 2D face frame ----
+        self.sides = np.array(
+            [float(np.linalg.norm(v2[(i + 1) % 4] - v2[i])) for i in range(4)]
+        )
         self.perimeter = float(self.sides.sum())
 
         self.diagonals = np.array([
-            float(np.linalg.norm(v[2] - v[0])),
-            float(np.linalg.norm(v[3] - v[1])),
+            float(np.linalg.norm(v2[2] - v2[0])),
+            float(np.linalg.norm(v2[3] - v2[1])),
         ])
         d_min, d_max = float(self.diagonals.min()), float(self.diagonals.max())
         self.diag_ratio = d_min / d_max if d_max > 0 else 0.0
@@ -126,14 +171,14 @@ class TrapeziumSample:
         eps = 1e-9
         angles = []
         for i in range(4):
-            u = v[(i - 1) % 4] - v[i]
-            w = v[(i + 1) % 4] - v[i]
-            cos_a = np.dot(u, w) / (np.linalg.norm(u) * np.linalg.norm(w) + eps)
+            a = v2[(i - 1) % 4] - v2[i]
+            b = v2[(i + 1) % 4] - v2[i]
+            cos_a = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + eps)
             angles.append(float(np.arccos(np.clip(cos_a, -1.0, 1.0))))
         self.angles = np.array(angles)
 
-        x = np.array([p[0] for p in v])
-        y = np.array([p[1] for p in v])
+        x = np.array([p[0] for p in v2])
+        y = np.array([p[1] for p in v2])
         self.area = float(
             0.5 * abs(
                 x[0] * (y[1] - y[3])
@@ -143,24 +188,30 @@ class TrapeziumSample:
             )
         )
 
-        self.centroid = np.mean(np.stack(v), axis=0)
-
+        self.centroid = centroid_3d
         self.eye_line = float(self.sides[0])
         self.mouth_line = float(self.sides[2])
         self.eye_mouth_ratio = self.eye_line / (self.mouth_line + eps)
 
-        eye_dir = self.right_eye - self.left_eye
-        mouth_dir = self.right_mouth - self.left_mouth
-        cross = np.linalg.norm(np.cross(eye_dir, mouth_dir))
-        denom = np.linalg.norm(eye_dir) * np.linalg.norm(mouth_dir) + eps
-        self.parallelism_residual = float(cross / denom)
+        eye_d2 = re2 - le2
+        mouth_d2 = rm2 - lm2
+        cross_2d = abs(eye_d2[0] * mouth_d2[1] - eye_d2[1] * mouth_d2[0])
+        denom = np.linalg.norm(eye_d2) * np.linalg.norm(mouth_d2) + eps
+        self.parallelism_residual = float(cross_2d / denom)
 
-        # Brow elevation: signed vertical (image-y) distance from each eye corner
-        # to the corresponding brow point. Positive = brow above eye (anatomical
-        # default). Roll-sensitive; switch to face-plane projection once rotation
-        # modelling is added.
-        self.left_brow_height = float(self.left_eye[1] - self.left_brow[1])
-        self.right_brow_height = float(self.right_eye[1] - self.right_brow[1])
+        # Brow heights now measured along the face's vertical axis (v).
+        self.left_brow_height = float(le2[1] - lb2[1])
+        self.right_brow_height = float(re2[1] - rb2[1])
+
+        # --- 5. Head-pose proxies (smooth functions of head orientation) -----
+        self.yaw_proxy = float(np.arctan2(n[0], n[2]))
+        self.pitch_proxy = float(np.arctan2(-n[1], np.sqrt(n[0] ** 2 + n[2] ** 2)))
+        self.roll_proxy = float(np.arctan2(u[1], u[0]))
+
+        # --- 6. Planarity residual (4-vertex non-coplanarity) ----------------
+        s_max = float(S_svd[0]) if S_svd.size else 1.0
+        s_min = float(S_svd[-1]) if S_svd.size else 0.0
+        self.planarity_residual_3d = s_min / (s_max + eps)
         return self
 
 
@@ -223,11 +274,21 @@ FEATURE_NAMES: tuple = (
     "eye_line_norm", "mouth_line_norm", "eye_mouth_ratio",
     "parallelism_residual",
     "left_brow_height_norm", "right_brow_height_norm",
+    "yaw_proxy", "pitch_proxy", "roll_proxy",
+    "planarity_residual_3d",
 )
 
 
 def feature_vector(sample: TrapeziumSample) -> np.ndarray:
-    """Scale-invariant dimensional feature vector for one trapezium frame."""
+    """Scale-invariant dimensional feature vector for one trapezium frame.
+
+    The first 17 entries are rotation-invariant geometric features computed in
+    the face-plane 2D frame. The next 3 entries are head-pose proxies; their
+    baseline mean encodes the subject's typical pose and z-scores against it
+    detect head turns / nods / tilts as separate events from facial
+    deformations. The last entry is the 4-vertex non-coplanarity which jumps
+    during sneers, jaw drops and other non-rigid face deformations.
+    """
     p = sample.perimeter if sample.perimeter > 0 else 1.0
     eye_line = sample.eye_line if sample.eye_line > 0 else 1.0
     return np.array([
@@ -248,6 +309,10 @@ def feature_vector(sample: TrapeziumSample) -> np.ndarray:
         sample.parallelism_residual,
         sample.left_brow_height / eye_line,
         sample.right_brow_height / eye_line,
+        sample.yaw_proxy,
+        sample.pitch_proxy,
+        sample.roll_proxy,
+        sample.planarity_residual_3d,
     ])
 
 

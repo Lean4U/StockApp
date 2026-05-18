@@ -14,6 +14,11 @@ eyebrow landmarks with:
         brow raise   @ t = 35 s  (σ = 1.0 s, both brows raised 5 px)
         squint       @ t = 44 s  (σ = 0.8 s, brows lowered 3 px - small signal)
         yawn         @ t = 52 s  (σ = 1.5 s, mouth corners ±15 px out, 12 px down)
+  * a labelled **head turn** (rigid rotation about the world-y axis) at t = 28 s
+    (σ = 1.0 s, peak yaw = 20°). The rotation is applied to all 6 landmarks
+    rigidly, so it should affect ONLY the head-pose features
+    (`yaw_proxy`, `pitch_proxy`, `roll_proxy`) and leave the 17 geometric
+    features untouched — verifying the face-plane rotation invariance.
 
 The first 10 s are used as the enrollment baseline. The remaining 50 s are
 overlaid against that baseline by `detect_sigma_changes`, which now runs
@@ -70,6 +75,11 @@ def gaussian_envelope(t: np.ndarray, t0: float, sigma_s: float) -> np.ndarray:
     return np.exp(-0.5 * ((t - t0) / sigma_s) ** 2)
 
 
+def _rotation_y(theta: float) -> np.ndarray:
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
 def build_recording(seed: int = 42):
     rng = np.random.default_rng(seed)
     t = np.arange(N) / FPS
@@ -89,18 +99,16 @@ def build_recording(seed: int = 42):
     env_brow = gaussian_envelope(t, 35.0, 1.0)
     env_squint = gaussian_envelope(t, 44.0, 0.8)
     env_yawn = gaussian_envelope(t, 52.0, 1.5)
+    env_turn = gaussian_envelope(t, 28.0, 1.0)
 
     lm[:, 0] += -8.0 * env_smile
     lm[:, 1] += -4.0 * env_smile
     rm[:, 0] += +8.0 * env_smile
     rm[:, 1] += -4.0 * env_smile
 
-    # Brow raise: lift both brows 5 px (image-y decreases).
     lbrow[:, 1] += -5.0 * env_brow
     rbrow[:, 1] += -5.0 * env_brow
 
-    # Squint / frown: drop both brows by 3 px — small, sustained signal that
-    # CUSUM should still catch even if the per-frame T² is moderate.
     lbrow[:, 1] += +3.0 * env_squint
     rbrow[:, 1] += +3.0 * env_squint
 
@@ -109,17 +117,26 @@ def build_recording(seed: int = 42):
     rm[:, 0] += +15.0 * env_yawn
     rm[:, 1] += +12.0 * env_yawn
 
-    samples = []
+    # Apply a rigid head-yaw rotation to all 6 landmarks centered on the face
+    # centroid. This should perturb yaw_proxy but NOT any geometric feature.
+    samples: List = []
+    yaw_peak = np.deg2rad(20.0)
     for i in range(N):
+        face_center = 0.25 * (le[i] + re[i] + lm[i] + rm[i])
+        R = _rotation_y(yaw_peak * env_turn[i])
+
+        def rot(p):
+            return R @ (p - face_center) + face_center
+
         samples.append(
             TrapeziumSample(
                 t=float(t[i]),
-                left_eye=le[i],
-                right_eye=re[i],
-                left_mouth=lm[i],
-                right_mouth=rm[i],
-                left_brow=lbrow[i],
-                right_brow=rbrow[i],
+                left_eye=rot(le[i]),
+                right_eye=rot(re[i]),
+                left_mouth=rot(lm[i]),
+                right_mouth=rot(rm[i]),
+                left_brow=rot(lbrow[i]),
+                right_brow=rot(rbrow[i]),
             ).compute_derived()
         )
     return t, samples
@@ -127,6 +144,7 @@ def build_recording(seed: int = 42):
 
 GROUND_TRUTH = [
     ("smile",      21.0, 2.0),
+    ("head turn",  28.0, 1.0),
     ("brow raise", 35.0, 1.0),
     ("squint",     44.0, 0.8),
     ("yawn",       52.0, 1.5),
