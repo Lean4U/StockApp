@@ -1,6 +1,6 @@
 # Privacy & Data Flow
 
-This document inventories **what data the DFI pipeline touches, where it
+This document inventories **what data the Syntonia score pipeline touches, where it
 lives, and which network calls it makes** so the threat model is explicit
 and re-checkable. It exists because the system processes biometric
 information (video, audio, facial / hand landmarks, derived behavioral
@@ -10,7 +10,7 @@ host.
 ## Summary
 
 All inference — face landmarks, hand landmarks, speech-to-text, syllable
-rate, the DFI itself — runs **locally on the host CPU**. No SaaS / cloud
+rate, the Syntonia score itself — runs **locally on the host CPU**. No SaaS / cloud
 ML / proxy ASR is used. Model files are downloaded *once* from public
 CDNs and cached under `models/`. After that the entire pipeline can run
 with the host firewalled.
@@ -25,7 +25,7 @@ with the host firewalled.
 | Hand landmarks (MediaPipe Tasks `HandLandmarker`) | local TFLite | **only** the one-time model download | model: `models/hand_landmarker.task`, ~7.5 MB |
 | Syllable-rate / VAD (librosa) | local           | none               | pure DSP, no model fetch |
 | Speech transcript (faster-whisper, CTranslate2)   | local int8 | **only** the one-time model download | model: `models/whisper-small/`, ~250 MB |
-| DFI assembly + change detectors | local         | none               | numpy only |
+| Syntonia assembly + change detectors | local         | none               | numpy only |
 | Streamlit dashboard      | local (127.0.0.1)    | none*              | * `[browser] gatherUsageStats = false` in `.streamlit/config.toml` disables Streamlit's opt-in analytics |
 | Plots (matplotlib / altair) | local             | none               | rendered to PNG / in-browser SVG |
 
@@ -53,7 +53,7 @@ requests, on the machine where you first install the project:
 3. `huggingface.co` — `Systran/faster-whisper-small` snapshot
 
 After this completes, `models/` contains everything needed. The host
-network may be torn down or firewalled, and `precompute_dfi.py` +
+network may be torn down or firewalled, and `precompute_syntonia.py` +
 `dashboard.py` keep working. Re-staging is only necessary if the model
 files are deleted.
 
@@ -63,7 +63,7 @@ populated `models/` directory across.
 
 ## Local artifacts written to disk
 
-- `videos/<stem>_dfi_cache.npz` — per-frame V/F/M/DFI traces, cluster
+- `videos/<stem>_dfi_cache.npz` — per-frame V/F/M/Syntonia traces, cluster
   decomposition, hand state codes, and the embedded transcript (if
   ASR enabled). **Contains derived biometric data.**
 - `videos/<stem>_dfi_report.png` — a 6-panel static summary plot.
@@ -90,7 +90,7 @@ the same wipe interactively.
 
 ## Ephemeral / no-disk mode
 
-`scripts/precompute_dfi.py` accepts `--ephemeral`, which runs the full
+`scripts/precompute_syntonia.py` accepts `--ephemeral`, which runs the full
 pipeline in memory and prints a summary without writing the `.npz`
 cache, report PNG, or events JSON. The dashboard cannot use an ephemeral
 run directly (it reads from cache files), but the flag is useful for
@@ -109,12 +109,12 @@ The pipeline keeps everything local, but the *host* still needs care:
 - Audit operating-system or IDE telemetry / cloud-clipboard features
   separately.
 
-## DFI interpretation caveat (reiterated)
+## Syntonia interpretation caveat (reiterated)
 
-Independent of privacy: the DFI is a **behavioral-friction indicator**,
+Independent of privacy: the Syntonia score is a **behavioral-friction indicator**,
 not a deception verdict. It flags moments where the subject's combined
 voice / fidget / face signal departs from their own baseline. Anxiety,
 distraction, physical discomfort, native-language fluency, cultural
-baselines, and neurodivergence all produce DFI excursions in the absence
+baselines, and neurodivergence all produce Syntonia excursions in the absence
 of deception. The 3.0 threshold itself must be empirically calibrated on
 ground-truth-labelled data before any operational use.

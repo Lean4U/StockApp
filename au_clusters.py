@@ -1,4 +1,4 @@
-"""AU-cluster weighting for the M(t) micro-expression component of the DFI.
+"""AU-cluster weighting for the M(t) micro-expression component of the Syntonia score.
 
 Groups the 22 face-trapezium features into FACS-style Action-Unit clusters and
 applies per-cluster weights, producing a sigma-comparable micro-expression
@@ -28,7 +28,7 @@ from face_trapezium import FEATURE_NAMES
 
 # Cluster → list of face-feature names. Each face feature belongs to exactly
 # one cluster (so the weighted sum is well-defined). The semantic names follow
-# the DFI spec: heavier weight on threat-cluster AUs.
+# the Syntonia score spec: heavier weight on threat-cluster AUs.
 AU_CLUSTERS: Dict[str, Tuple[str, ...]] = {
     # AU12 asymmetric lip-corner pull / contempt cue.
     "asymmetric_lip": (
@@ -79,7 +79,7 @@ AU_CLUSTERS: Dict[str, Tuple[str, ...]] = {
 }
 
 
-# Per-cluster weights (S_AU in the DFI spec). Threat-cluster AUs carry the
+# Per-cluster weights (S_AU in the Syntonia score spec). Threat-cluster AUs carry the
 # heaviest weight per the spec. These values are tunable.
 DEFAULT_AU_WEIGHTS: Dict[str, float] = {
     "asymmetric_lip": 2.0,   # AU12 asymmetric (contempt)

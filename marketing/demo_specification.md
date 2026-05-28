@@ -1,8 +1,8 @@
-# DFI vs. Cloud-Coach Comparison Demo Protocol
+# Syntonia vs. Cloud-Coach Comparison Demo Protocol
 
-A repeatable, defensible side-by-side comparison of the DFI pipeline against
+A repeatable, defensible side-by-side comparison of the Syntonia score pipeline against
 a cloud incumbent (Yoodli is the primary target; the same protocol applies
-to Poised / Orai). The output is a single page that demonstrates DFI's
+to Poised / Orai). The output is a single page that demonstrates Syntonia's
 per-subject-baseline + multilingual posture catches signal that
 population-norm tools misinterpret.
 
@@ -16,9 +16,9 @@ protocol with IRB approval.
 | Claim it lets you make | Evidence the demo produces |
 |---|---|
 | "Western-tuned coach apps misread non-Western candidates" | Yoodli's actual report flags X behaviour as a problem; that behaviour is the subject's normal baseline |
-| "Per-subject baseline eliminates that bias" | DFI's report for the same clip does not flag the same behaviour |
-| "Multilingual ASR works on-device" | Whisper-small transcribes the subject's L1 (Hindi / Japanese / etc.) cleanly inside the DFI pipeline; competitor either can't handle the language or sends audio cross-border |
-| "Privacy posture survives a global candidate's threat model" | Subject's clip never leaves their laptop in the DFI run; observable in network logs |
+| "Per-subject baseline eliminates that bias" | Syntonia's report for the same clip does not flag the same behaviour |
+| "Multilingual ASR works on-device" | Whisper-small transcribes the subject's L1 (Hindi / Japanese / etc.) cleanly inside the Syntonia score pipeline; competitor either can't handle the language or sends audio cross-border |
+| "Privacy posture survives a global candidate's threat model" | Subject's clip never leaves their laptop in the Syntonia score run; observable in network logs |
 
 ## Subjects to recruit
 
@@ -92,20 +92,20 @@ For each clip:
    - The pace / filler-word / energy metrics
    - Any flagged moments with timestamps
    - Total session duration billed
-2. **Run through DFI** locally:
+2. **Run through Syntonia** locally:
    ```
-   python scripts/precompute_dfi.py videos/<subject>_<lang>.mp4 \
+   python scripts/precompute_syntonia.py videos/<subject>_<lang>.mp4 \
        --baseline-seconds 12
    ```
    Open the dashboard. Capture screenshots of:
-   - The state-panel readout at peak DFI moment
+   - The state-panel readout at peak Syntonia moment
    - The breach event card (with verbatim transcript)
    - The AU cluster heatmap during the peak
 3. **Network audit during the runs**:
    - Yoodli: run `tcpdump` or Wireshark during upload. Capture how much
      data crossed the border, to which IPs (their AWS region), and how long
      it was retained per their ToS.
-   - DFI: run the same capture. Show zero outbound traffic (model already
+   - Syntonia: run the same capture. Show zero outbound traffic (model already
      fetched).
 4. **Generate the comparison sheet** (template in `marketing/comparison_sheet_template.md`).
 
@@ -117,8 +117,8 @@ trust we didn't rig it.
 | Rule | Reason |
 |---|---|
 | Same exact MP4 file fed to both tools | Eliminates "different recording quality" objections |
-| Default settings on both tools | We don't tune DFI parameters to flatter ourselves |
-| Both reports shown in full, unedited | No cherry-picking; show DFI's misses too |
+| Default settings on both tools | We don't tune Syntonia parameters to flatter ourselves |
+| Both reports shown in full, unedited | No cherry-picking; show Syntonia's misses too |
 | Subject confirms which report matches their experience | Subject is the ground truth |
 | Yoodli's privacy claim shown verbatim from their ToS | We don't paraphrase their position into a strawman |
 | All raw clips + reports archived | Anyone disputing the demo can re-run |
@@ -142,15 +142,15 @@ What CLOUD-COACH-X concluded:
 - Audio uploaded to: <ToS region>
 - Audio retained: <ToS retention policy>
 
-What DFI concluded:
-- Max DFI: <X.X> (threshold 3.0)
+What Syntonia concluded:
+- Max Syntonia: <X.X> (threshold 3.0)
 - Breach events: <N>
 - Per-frame channels: V=<peak> F=<peak> M=<peak>
 - Verbatim line at peak: "<the subject's sentence>"
 - Data sent off-device: 0 bytes
 
 Subject's own assessment:
-- Which report matched their experience? <CLOUD-X | DFI | both | neither>
+- Which report matched their experience? <CLOUD-X | Syntonia | both | neither>
 - Any moment they wish either tool had caught? <subject's words>
 - Privacy preference: <subject's words>
 ```
@@ -164,9 +164,9 @@ From a single 6-clip session you get:
 2. **1 aggregate post**: "We tested Yoodli on three non-Western candidates —
    here's what it missed" (the public-facing blog format)
 3. **3 quotable subject testimonials** — usable on the landing page
-4. **3 short-form clips** of the DFI dashboard catching a moment the
+4. **3 short-form clips** of the Syntonia score dashboard catching a moment the
    cloud tool missed (15-second loops, suitable for LinkedIn, Twitter)
-5. **A network-traffic screenshot** showing 0 outbound bytes from the DFI
+5. **A network-traffic screenshot** showing 0 outbound bytes from the Syntonia score
    run — the strongest single privacy proof
 
 ## Release form (one page, plain language)
@@ -175,7 +175,7 @@ Subjects sign before recording. Template:
 
 > I, <name>, voluntarily participated in a comparison demo of behavioural
 > analysis tools on <date>. I understand that:
-> - My recording will be used in marketing materials for the DFI product,
+> - My recording will be used in marketing materials for the Syntonia score product,
 >   in the configuration we agreed to.
 > - I will see both reports before any public use, and may withdraw consent
 >   at any time before publication.
@@ -190,9 +190,9 @@ Important to be honest in the marketing copy:
 - It is not a controlled statistical study. N=3.
 - It does not prove Yoodli is "wrong" in the general case — only that for
   these specific subjects, the population norms misinterpret their normal.
-- It does not prove DFI's interpretations are clinically correct — only
+- It does not prove Syntonia's interpretations are clinically correct — only
   that they don't carry the same cultural-baseline bias.
-- It does not prove DFI is more accurate at detecting actual deception or
+- It does not prove The Syntonia score is more accurate at detecting actual deception or
   clinical conditions. That's a different study.
 
 Frame the demo as a **bias illustration**, not a head-to-head accuracy claim.

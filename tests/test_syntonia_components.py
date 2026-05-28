@@ -1,4 +1,4 @@
-"""Unit tests for the AU clusters, hand-pipeline math, and DFI assembly."""
+"""Unit tests for the AU clusters, hand-pipeline math, and Syntonia assembly."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from au_clusters import (
     compute_au_clusters,
 )
 from face_trapezium import FEATURE_NAMES
-from dfi import compute_dfi
+from syntonia_model import compute_syntonia
 
 
 # ---------------------------------------------------------------------------
@@ -191,26 +191,26 @@ def test_compute_fidget_index_burst_changes_z():
 
 
 # ---------------------------------------------------------------------------
-# DFI assembly
+# Syntonia assembly
 # ---------------------------------------------------------------------------
 
 def test_dfi_zero_inputs_zero_output():
     target = np.arange(60) / 10.0
-    r = compute_dfi(target,
+    r = compute_syntonia(target,
                     None, None,
                     None, None,
                     None, None)
-    np.testing.assert_allclose(r.dfi, 0.0)
+    np.testing.assert_allclose(r.syntonia, 0.0)
     assert r.windows == []
 
 
 def test_dfi_threshold_crossings():
-    """All three channels constant at 3.0 → DFI = 3.0 throughout, threshold met."""
+    """All three channels constant at 3.0 → Syntonia = 3.0 throughout, threshold met."""
     target = np.linspace(0, 30, 301)
     v = np.full_like(target, 3.0)
     f = np.full_like(target, 3.0)
     m = np.full_like(target, 3.0)
-    r = compute_dfi(target,
+    r = compute_syntonia(target,
                     target, v,
                     target, f,
                     target, m,
@@ -218,10 +218,10 @@ def test_dfi_threshold_crossings():
                     threshold=3.0, window_s=5.0)
     # The rolling mean of the constant signal should equal 3.0 across the
     # entire span, so the whole thing is one window.
-    np.testing.assert_allclose(r.dfi, 3.0, atol=1e-9)
+    np.testing.assert_allclose(r.syntonia, 3.0, atol=1e-9)
     assert len(r.windows) == 1
     w = r.windows[0]
-    assert w.peak_dfi == pytest.approx(3.0, abs=1e-9)
+    assert w.peak_syntonia == pytest.approx(3.0, abs=1e-9)
 
 
 def test_dfi_isolated_spike_below_window():
@@ -230,7 +230,7 @@ def test_dfi_isolated_spike_below_window():
     target = np.linspace(0, 30, 301)
     m = np.zeros_like(target)
     m[150] = 10.0
-    r = compute_dfi(target,
+    r = compute_syntonia(target,
                     None, None,
                     None, None,
                     target, m,
@@ -242,15 +242,15 @@ def test_dfi_isolated_spike_below_window():
 
 
 def test_dfi_weights_must_be_respected():
-    """If γ=1 and the M channel is at 6.0 sustained, DFI = 6.0."""
+    """If γ=1 and the M channel is at 6.0 sustained, Syntonia = 6.0."""
     target = np.linspace(0, 20, 201)
     m = np.full_like(target, 6.0)
-    r = compute_dfi(target,
+    r = compute_syntonia(target,
                     None, None,
                     None, None,
                     target, m,
                     alpha=0.0, beta=0.0, gamma=1.0)
-    np.testing.assert_allclose(r.dfi, 6.0, atol=1e-9)
+    np.testing.assert_allclose(r.syntonia, 6.0, atol=1e-9)
 
 
 def test_dfi_dominant_component_reported_correctly():
@@ -258,7 +258,7 @@ def test_dfi_dominant_component_reported_correctly():
     target = np.linspace(0, 30, 301)
     m = np.zeros_like(target)
     m[100:200] = 9.0  # sustained
-    r = compute_dfi(target,
+    r = compute_syntonia(target,
                     None, None,
                     None, None,
                     target, m,

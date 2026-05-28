@@ -1,6 +1,6 @@
 # Per-subject baselines eliminate cultural bias in behavioural analytics
 
-A technical defence of the DFI's culturally-agnostic posture.
+A technical defence of the Syntonia score's culturally-agnostic posture.
 
 ---
 
@@ -14,7 +14,7 @@ normal baseline behaviour as deviation: pacing differences as nervousness,
 expressive-baseline differences as low affect, gesture vocabularies as
 fidgeting, vocal-modulation patterns as instability.
 
-The DFI pipeline avoids this class of error by **never comparing a subject
+The Syntonia pipeline avoids this class of error by **never comparing a subject
 to a population norm**. Every threshold is computed relative to the
 subject's own first 15 seconds of footage, using robust statistics
 (median + scaled MAD) on a 22-dimensional feature vector. The result: a
@@ -42,14 +42,14 @@ category:
 
 The combined effect: a non-Western candidate using a cloud-coach app
 receives advice to **perform as a Western English speaker**, not to be
-their best version of themselves. That is the bias DFI exists to avoid.
+their best version of themselves. That is the bias Syntonia exists to avoid.
 
 ---
 
-## 2. The DFI architecture: never compare across subjects
+## 2. The Syntonia architecture: never compare across subjects
 
 The full mathematical machinery is documented elsewhere in the codebase
-(see `face_trapezium.py`, `dfi.py`). The single property that makes DFI
+(see `face_trapezium.py`, `syntonia_model.py`). The single property that makes Syntonia
 culturally agnostic is structural:
 
 **No threshold is ever computed from a population.** Every threshold is
@@ -134,16 +134,16 @@ diverging subjects.
 
 ## 4. Why MediaPipe and Whisper inherit this property
 
-The DFI math is one of three layers, all of which contribute to the
+The Syntonia math is one of three layers, all of which contribute to the
 cultural-agnostic posture:
 
 | Layer | Cultural posture | Source |
 |---|---|---|
 | **Face / hand landmark detection** | Globally-sampled training data (Google's MediaPipe team explicitly built on a diverse face-image corpus to avoid the demographic-bias issues of earlier face-mesh models) | MediaPipe Tasks, Apache 2.0, `models/face_landmarker.task` |
 | **Speech-to-text** | 98-language multilingual model with comparable per-language WER for the supported set | OpenAI Whisper, MIT-licensed, via `faster-whisper` |
-| **Threshold + decision math** | Per-subject baseline; never references population | DFI, this codebase |
+| **Threshold + decision math** | Per-subject baseline; never references population | Syntonia, this codebase |
 
-A claim that DFI is "culturally agnostic" is defensible because all three
+A claim that The Syntonia score is "culturally agnostic" is defensible because all three
 layers respect the property. If any layer used a population-norm
 classifier, the claim would fail — but none do.
 
@@ -157,7 +157,7 @@ non-Western subjects under population thresholds) and leave others open:
 
 | Open issue | Why it remains | What we'd need to do |
 |---|---|---|
-| **Action-unit cluster weights (`S_AU` in the DFI equation)** are currently uniform across cultures (`brow_knit` = 2.5, `asymmetric_lip` = 2.0, etc.) | Some FACS Action Units have culturally-different semantic loadings. Brow-knit reads as anger/concentration in Western cultures, but is less expressive in some East Asian baseline. | Ship per-region weight presets after collecting ~50-subject validation data per region. |
+| **Action-unit cluster weights (`S_AU` in the Syntonia score equation)** are currently uniform across cultures (`brow_knit` = 2.5, `asymmetric_lip` = 2.0, etc.) | Some FACS Action Units have culturally-different semantic loadings. Brow-knit reads as anger/concentration in Western cultures, but is less expressive in some East Asian baseline. | Ship per-region weight presets after collecting ~50-subject validation data per region. |
 | **The 3.0 threshold itself is empirically motivated, not theoretically derived for each cultural context** | A 3σ aggregate corresponds to ~0.27% tail probability assuming Gaussian per-feature noise. Real behavioural noise is heavier-tailed; the false-alarm rate depends on the subject. | Calibrate threshold per cultural cluster from a held-out validation set. |
 | **Hand-region weights (`W_b`)** assume a default cultural meaning for "touching face / neck / hair" | Hijab-adjustment, prayer-bead manipulation, head-cover adjustment are routine — not deception cues — in several populations. | Either down-weight ear / hair regions when the subject self-declares relevant context, or learn the per-subject hand-region baseline (advanced; not yet in v1). |
 | **Gesture-rich speakers (Italian, Spanish, etc.)** still have higher F-channel baselines | Per-subject baseline absorbs the *level* of gesture, but the F-channel's reliability-weighted aggregation could still produce slightly different behaviour for high-gesture subjects | Validate the F-channel calibration empirically per population. |
@@ -168,11 +168,11 @@ hiring, or research purposes knows where the boundaries are.
 
 ---
 
-## 6. What this position lets DFI claim — and what it doesn't
+## 6. What this position lets Syntonia claim — and what it doesn't
 
 **Defensible claims:**
 
-- "The DFI's threshold detection does not assume a Western or English-
+- "The Syntonia's threshold detection does not assume a Western or English-
   speaker default. It is computed per-subject from the subject's own
   baseline footage."
 - "Robust median + MAD statistics give the detector a 50% break-down
@@ -185,11 +185,11 @@ hiring, or research purposes knows where the boundaries are.
 
 **Claims we do NOT make:**
 
-- "DFI is bias-free." (No system is.)
-- "DFI's interpretations transfer perfectly across cultures." (See §5.)
-- "DFI can replace culturally-competent clinical or coaching expertise."
+- "The Syntonia score is bias-free." (No system is.)
+- "Syntonia's interpretations transfer perfectly across cultures." (See §5.)
+- "Syntonia can replace culturally-competent clinical or coaching expertise."
   (The output is signal for human review, not a verdict.)
-- "DFI works without ground-truth validation per subject population for
+- "Syntonia works without ground-truth validation per subject population for
   clinical applications." (Tier 2 requires per-population calibration.)
 
 ---
@@ -226,7 +226,7 @@ next concrete steps:
 
 ## 8. Conclusion
 
-The DFI's claim to cultural agnosticism is not a marketing position
+The Syntonia's claim to cultural agnosticism is not a marketing position
 bolted on top of a Western-default detector. It is the architectural
 default: nothing in the threshold computation references a population
 norm. The synthetic illustration in §3 makes the structural problem

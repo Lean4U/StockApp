@@ -10,7 +10,7 @@ For each video frame we derive:
   metric is invariant to rigid hand translation / rotation.
 * ``inter_hand_motion_corr`` — Pearson correlation between the two hands'
   per-frame finger-motion traces over a 1-second sliding window.
-* ``hand_state`` — A / B / C / D as specified in the DFI spec:
+* ``hand_state`` — A / B / C / D as specified in the Syntonia score spec:
         A: hands together, fingers still
         B: hands together, fingers moving
         C: hands apart, fingers still
@@ -73,7 +73,7 @@ _HAND_LANDMARKER_DOWNLOAD_URL = (
 )
 
 
-# DFI target weight matrix (W_b in the spec). Higher weight = stronger
+# Syntonia target weight matrix (W_b in the spec). Higher weight = stronger
 # behavioral significance of touching that region. These are heuristic
 # defaults from deception-cue literature and should be tuned with ground
 # truth.
@@ -84,7 +84,7 @@ _HAND_LANDMARKER_DOWNLOAD_URL = (
 #   * hand-to-hand interaction states ("fingers" / "single_hand" /
 #     "clasp_still") — weighted lower but non-zero so wringing, twiddling and
 #     single-hand fidgeting register on F(t) even when the hands never travel
-#     up to the face. The DFI spec calls these "fingers/ring manipulation".
+#     up to the face. The Syntonia spec calls these "fingers/ring manipulation".
 REGION_WEIGHTS: dict = {
     "neck": 3.5,           # vocal-cord shielding (highest signal)
     "face": 2.5,           # nose / mouth / eye area self-grooming
@@ -406,7 +406,7 @@ class HandsTracker:
             sample.hand_to_face_min_dist_norm = best_d if np.isfinite(best_d) else float("nan")
             sample.hand_to_face_region = best_region
 
-        # Hand-state classifier (DFI 2×2).
+        # Hand-state classifier (Syntonia 2×2).
         if sample.n_hands == 0:
             sample.hand_state = "hidden"
             sample.hand_state_code = -1
@@ -460,7 +460,7 @@ def compute_fidget_index(
 
     Returns (F_raw, F_z) where F_z is the F_raw stream rescaled by its
     median + 1.4826·MAD so that ~unit-sigma baseline gives F_z ≈ 0 and a
-    deviation roughly equivalent to a sigma score. The DFI uses F_z.
+    deviation roughly equivalent to a sigma score. The Syntonia uses F_z.
     """
     if region_weights is None:
         region_weights = REGION_WEIGHTS

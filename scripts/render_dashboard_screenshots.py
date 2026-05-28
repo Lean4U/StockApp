@@ -5,9 +5,9 @@ Produces:
     videos/dashboard_01_baseline.png  — playhead at t=15s, channels all near 0
     videos/dashboard_02_event_70s.png — playhead at the kinetic-burst at t=70s
     videos/dashboard_03_breach.png    — playhead at the equilibrium-shatter
-                                        at t=122s where DFI > 3 and the event
+                                        at t=122s where Syntonia > 3 and the event
                                         log card surfaces the breach
-    videos/dashboard_04_timeline.png  — full V/F/M/DFI timeline with breach
+    videos/dashboard_04_timeline.png  — full V/F/M/Syntonia timeline with breach
                                         window + AU heatmap
 """
 
@@ -31,7 +31,7 @@ sys.path.insert(0, str(REPO))
 
 from voice_transcript import TranscriptResult  # noqa: E402
 
-CACHE_PATH = REPO / "videos" / "test-video-1-demo_dfi_cache.npz"
+CACHE_PATH = REPO / "videos" / "test-video-1-demo_syntonia_cache.npz"
 VIDEO_PATH = REPO / "videos" / "test-video-1.MOV"
 
 
@@ -61,7 +61,7 @@ def load() -> dict:
         "f_z": npz["f_z"],
         "v_times": npz["v_times"],
         "v_values": npz["v_values"],
-        "dfi": npz["dfi"],
+        "syntonia": npz["syntonia"],
         "regions": npz["regions"],
         "hand_state_codes": npz["hand_state_codes"],
         "sample_frame_idx": npz["sample_frame_idx"],
@@ -89,7 +89,7 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
     """One dashboard-style page snapshot showing:
        - video preview (left)
        - state panel (right)
-       - synchronized V/F/M/DFI chart (middle row)
+       - synchronized V/F/M/Syntonia chart (middle row)
        - AU cluster heatmap (bottom)
     """
     times = data["times"]
@@ -101,15 +101,15 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
     v_at = float(v_resampled[cursor_idx])
     f_at = float(data["f_z"][cursor_idx])
     m_at = float(data["m"][cursor_idx])
-    dfi_at = float(data["dfi"][cursor_idx])
-    in_breach = dfi_at >= threshold
+    syntonia_at = float(data["syntonia"][cursor_idx])
+    in_breach = syntonia_at >= threshold
 
     fig = plt.figure(figsize=(16, 11), facecolor="#0a0c10")
     gs = GridSpec(3, 4, height_ratios=[1.2, 1.5, 1.0], hspace=0.45, wspace=0.30,
                   left=0.05, right=0.97, top=0.93, bottom=0.07)
 
     fig.suptitle(
-        "DFI Real-Time Analytics — " + title,
+        "SyntoniaPro — Real-Time Analytics — " + title,
         color="#e0e0e0", fontsize=18, fontweight="bold", y=0.97,
     )
 
@@ -141,14 +141,14 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
         sp.set_color("#333")
 
     breach_color = "#d9534f" if in_breach else (
-        "#f0ad4e" if dfi_at >= threshold * 0.66 else "#5cb85c")
+        "#f0ad4e" if syntonia_at >= threshold * 0.66 else "#5cb85c")
     label = "⚠ BREACH" if in_breach else (
-        "— elevated —" if dfi_at >= threshold * 0.66 else "— stable —")
+        "— elevated —" if syntonia_at >= threshold * 0.66 else "— stable —")
     ax_state.barh([0.85], [1.0], color=breach_color, height=0.02,
                   transform=ax_state.transAxes)
     ax_state.text(0.05, 0.78, label, transform=ax_state.transAxes,
                   color=breach_color, fontsize=14, fontweight="bold")
-    ax_state.text(0.05, 0.50, f"DFI = {dfi_at:.2f}", transform=ax_state.transAxes,
+    ax_state.text(0.05, 0.50, f"Syntonia = {syntonia_at:.2f}", transform=ax_state.transAxes,
                   color="white", fontsize=44, fontweight="bold")
     ax_state.text(0.05, 0.38, f"threshold = {threshold:.2f}",
                   transform=ax_state.transAxes, color="#9aa0a6", fontsize=12)
@@ -181,11 +181,11 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
     ax_t.plot(times, v_resampled, color="#cd853f", lw=1.2, label="V (voice)")
     ax_t.plot(times, data["f_z"], color="#9966cc", lw=1.2, label="F (fidget)")
     ax_t.plot(times, data["m"], color="#3cb371", lw=1.2, label="M (face)")
-    ax_t.plot(times, data["dfi"], color="white", lw=1.8, label="DFI(t)")
+    ax_t.plot(times, data["syntonia"], color="white", lw=1.8, label="Syntonia(t)")
     ax_t.axhline(threshold, color="#d9534f", ls="--", lw=1.5,
                  label=f"threshold = {threshold:.1f}")
     # Mark each breach window from meta.
-    for w in data["meta"].get("dfi_windows", []):
+    for w in data["meta"].get("syntonia_windows", []):
         ax_t.axvspan(w["start_t"], w["end_t"], alpha=0.20, color="#d9534f")
     ax_t.axvline(cursor_t, color="#fff200", lw=1.2, alpha=0.9)
     ax_t.set_xlim(times[0], times[-1])
@@ -217,7 +217,7 @@ def render_panel(out_path: Path, data: dict, playhead_t: float, title: str):
 
 def render_event_log(out_path: Path, data: dict):
     """Plain text-card rendering of the breach event log."""
-    windows = data["meta"].get("dfi_windows", [])
+    windows = data["meta"].get("syntonia_windows", [])
     threshold = data["meta"]["threshold"]
     transcript: Optional[TranscriptResult] = data.get("transcript")
     fig = plt.figure(figsize=(16, max(3, 2.5 + 2.4 * max(len(windows), 1))),
@@ -230,8 +230,8 @@ def render_event_log(out_path: Path, data: dict):
         ax.set_facecolor("#1a3a1a")
         ax.set_xticks([]); ax.set_yticks([])
         ax.text(0.02, 0.5,
-                f"No DFI threshold breaches detected.\n"
-                f"Max DFI = {data['dfi'].max():.2f} (threshold = {threshold:.2f}).",
+                f"No Syntonia threshold breaches detected.\n"
+                f"Max Syntonia = {data['syntonia'].max():.2f} (threshold = {threshold:.2f}).",
                 color="#90ee90", fontsize=14, fontweight="bold",
                 verticalalignment="center")
     else:
@@ -254,7 +254,7 @@ def render_event_log(out_path: Path, data: dict):
             f_p = float(data["f_z"][peak_idx])
             m_p = float(data["m"][peak_idx])
             line1 = (
-                f"⚠ DFI = {w['peak_dfi']:.2f}  >  threshold {threshold:.2f}     "
+                f"⚠ Syntonia = {w['peak_syntonia']:.2f}  >  threshold {threshold:.2f}     "
                 f"at t = {w['peak_t']:.2f}s"
             )
             ax.text(0.02, 0.84, line1, transform=ax.transAxes,
@@ -310,7 +310,7 @@ def main():
                  title="kinetic burst (t = 70.0 s)  —  fidget dominates")
     # Event 3 — co-firing breach.
     render_panel(out / "dashboard_03_breach_122s.png", data, playhead_t=122.31,
-                 title="EQUILIBRIUM-SHATTER (t = 122.31 s)  —  DFI breach")
+                 title="EQUILIBRIUM-SHATTER (t = 122.31 s)  —  Syntonia breach")
     # Event log card.
     render_event_log(out / "dashboard_04_event_log.png", data)
     print("Rendered:")

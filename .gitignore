@@ -14,8 +14,13 @@ videos/*_events.json
 videos/*_overlay.mp4
 videos/frame_*.jpg
 videos/hands_*.jpg
+videos/*_syntonia_cache.npz
+videos/*_syntonia_report.png
+videos/*_syntonia_events.json
+videos/*_syntonia_overlay.mp4
+videos/dashboard_*.png
+# Legacy DFI-naming patterns (kept so any leftover files stay ignored)
 videos/*_dfi_cache.npz
 videos/*_dfi_report.png
 videos/*_dfi_events.json
 videos/*_dfi_overlay.mp4
-videos/dashboard_*.png

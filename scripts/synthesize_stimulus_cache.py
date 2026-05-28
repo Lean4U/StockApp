@@ -1,4 +1,4 @@
-"""Build a demo DFI cache with synthetic stimulus events on top of an existing
+"""Build a demo Syntonia cache with synthetic stimulus events on top of an existing
 real-video cache, so we can showcase the dashboard's breach detection in action.
 
 Starts from the real test-video-1 cache (preserves real face / hand frames so
@@ -10,7 +10,7 @@ stimulus events:
     t = 120 s  co-firing event     (V + F + M all spike together — the
                                     classic "equilibrium-shattering" moment)
 
-The DFI is recomputed from the modified V/F/M traces using the cache's
+The The Syntonia score is recomputed from the modified V/F/M traces using the cache's
 existing α/β/γ weights.
 """
 
@@ -25,7 +25,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from dfi import compute_dfi  # noqa: E402
+from syntonia_model import compute_syntonia  # noqa: E402
 
 
 def gaussian(t, t0, sigma_s, amp):
@@ -33,8 +33,8 @@ def gaussian(t, t0, sigma_s, amp):
 
 
 def main():
-    src = REPO / "videos" / "test-video-1_dfi_cache.npz"
-    dst = REPO / "videos" / "test-video-1-demo_dfi_cache.npz"
+    src = REPO / "videos" / "test-video-1_syntonia_cache.npz"
+    dst = REPO / "videos" / "test-video-1-demo_syntonia_cache.npz"
     if not src.exists():
         print(f"Source cache not found: {src}")
         return 1
@@ -73,7 +73,7 @@ def main():
 
     alpha = meta["alpha"]; beta = meta["beta"]; gamma = meta["gamma"]
     threshold = meta["threshold"]; window_s = meta["window_s"]
-    rep = compute_dfi(
+    rep = compute_syntonia(
         times,
         v_times, v_new,
         times, f_new,
@@ -83,12 +83,12 @@ def main():
     )
 
     new_meta = dict(meta)
-    new_meta["dfi_windows"] = [w.to_dict() for w in rep.windows]
+    new_meta["syntonia_windows"] = [w.to_dict() for w in rep.windows]
     new_meta["summary"] = dict(meta["summary"])
     new_meta["summary"]["max_m"] = float(m_new.max())
     new_meta["summary"]["max_f"] = float(f_new.max())
     new_meta["summary"]["max_v"] = float(v_new.max())
-    new_meta["summary"]["max_dfi"] = float(rep.dfi.max())
+    new_meta["summary"]["max_syntonia"] = float(rep.syntonia.max())
     new_meta["video"] = str(REPO / "videos" / "test-video-1.MOV")
     new_meta["synthetic"] = {
         "note": "Demo cache: real face/hand frames + synthetic stimulus events.",
@@ -135,7 +135,7 @@ def main():
         f_raw=npz["f_raw"],
         v_times=v_times,
         v_values=v_new,
-        dfi=rep.dfi,
+        syntonia=rep.syntonia,
         regions=npz["regions"],
         hand_state_codes=npz["hand_state_codes"],
         kinetic_per_frame=npz["kinetic_per_frame"],
@@ -149,12 +149,12 @@ def main():
     print(f"Max V: {v_new.max():.2f}σ")
     print(f"Max F: {f_new.max():.2f}σ")
     print(f"Max M: {m_new.max():.2f}σ")
-    print(f"Max DFI (rolling-mean): {rep.dfi.max():.2f}")
+    print(f"Max Syntonia (rolling-mean): {rep.syntonia.max():.2f}")
     print(f"Threshold = {threshold:.2f}")
     print(f"Breach windows: {len(rep.windows)}")
     for w in rep.windows:
         print(f"  [{w.start_t:.2f}, {w.end_t:.2f}] s  "
-              f"peak {w.peak_dfi:.2f} @ {w.peak_t:.2f}s  dom={w.dominant_component}")
+              f"peak {w.peak_syntonia:.2f} @ {w.peak_t:.2f}s  dom={w.dominant_component}")
     return 0
 
 

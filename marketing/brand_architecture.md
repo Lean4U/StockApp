@@ -110,7 +110,7 @@ architecture; no per-persona customisation needed.
 
 | Tier | Use case | Status | Hardware target |
 |---|---|---|---|
-| **1 — Self-coaching** | Subject records themselves; reviews their own DFI events | **Primary launch focus.** v1 product. | Mac mini / Beelink / Windows laptop |
+| **1 — Self-coaching** | Subject records themselves; reviews their own Syntonia events | **Primary launch focus.** v1 product. | Mac mini / Beelink / Windows laptop |
 | **2 — Clinical / coaching pair** | Subject + clinician co-review sessions | Deferred to year 2; speech-language pathology is cleanest first medical adjacency | Per-clinician workstation |
 | **3 — Research / academic** | Multimodal behavioural research | Deferred; needs IRB pathway | Per-researcher workstation |
 | **4 — Sales / customer-experience** | Reps review their own calls | Deferred to year 2 | Mini-PC per rep |
@@ -196,7 +196,7 @@ These are intentionally open and will be resolved as inputs arrive.
 - **Privacy documentation**: `PRIVACY.md` — data-flow inventory
 - **Privacy preflight script**: `scripts/check_isolation.py` — verifies project sits outside cloud-sync roots
 - **Model fetch**: `scripts/fetch_models.py` — one-time download of MediaPipe + Whisper
-- **Pipeline driver**: `scripts/precompute_syntonia.py` *(renamed from `precompute_dfi.py`)*
+- **Pipeline driver**: `scripts/precompute_syntonia.py` *(renamed from `precompute_syntonia.py`)*
 - **Real-time analytics**: `dashboard.py` — Streamlit dashboard
 - **Synthetic illustration**: `scripts/cultural_baseline_demo.py` — generates the per-subject vs. population threshold plot
 
@@ -207,3 +207,4 @@ These are intentionally open and will be resolved as inputs arrive.
 | Date | Decision |
 |---|---|
 | 2026-05-18 | Initial brand architecture committed. Consumer brand: SyntoniaPro. Technical engine: Syntonia Model. Domain SyntoniaPro.com purchased. USPTO TESS Classes 9 + 42 cleared. |
+| 2026-05-18 | Codebase rename executed. `dfi.py → syntonia_model.py`. Symbols renamed: `DFIReport → SyntoniaReport`, `DFIWindow → SyntoniaWindow`, `compute_dfi → compute_syntonia`, `DFI_DISCLAIMER → SYNTONIA_DISCLAIMER`. Output file naming: `*_dfi_cache.npz → *_syntonia_cache.npz` and analogous for `_report.png` / `_events.json` / `_overlay.mp4`. Dashboard page title and headings rebranded. Marketing artifacts (whitepaper, demo specification, landing-page hero) updated to consistently use SyntoniaPro (consumer) and Syntonia Model (technical engine). 47 / 47 unit tests passing. Dashboard headless boot test: HTTP 200 in 4 s. |

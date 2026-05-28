@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-stage all local model files for the DFI pipeline. After this script
+# Pre-stage all local model files for the Syntonia score pipeline. After this script
 # runs once, the entire pipeline (face / hand / voice rate / transcript) can
 # operate offline — the host network can be firewalled or torn down and
 # everything still works.

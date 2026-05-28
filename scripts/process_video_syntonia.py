@@ -1,21 +1,21 @@
-"""End-to-end DFI pipeline on a single video.
+"""End-to-end Syntonia pipeline on a single video.
 
 Runs four independent channels:
   1. FaceLandmarker → TrapeziumSamples → per-feature z-scores → AU-clustered M(t)
   2. HandLandmarker → HandsSamples → finger motion + hand state + region tag
                                   → kinetic-density F(t)
   3. Audio (ffmpeg + librosa) → syllable-rate proxy → V(t)
-  4. DFI(t) = α·V + β·F + γ·M with 5-second rolling threshold scan.
+  4. Syntonia(t) = α·V + β·F + γ·M with 5-second rolling threshold scan.
 
 Output artifacts (saved next to the input video, by default):
-  <stem>_dfi_report.png    7-panel detector view (RMS, T², M, F, V, DFI, hand state)
-  <stem>_dfi_events.json   per-channel + DFI windows + full run config
-  <stem>_dfi_overlay.mp4   annotated video (face trapezium + hands + per-frame DFI readout)
+  <stem>_syntonia_report.png    7-panel detector view (RMS, T², M, F, V, Syntonia, hand state)
+  <stem>_syntonia_events.json   per-channel + Syntonia windows + full run config
+  <stem>_syntonia_overlay.mp4   annotated video (face trapezium + hands + per-frame Syntonia readout)
 
 Usage:
-  python scripts/process_video_dfi.py videos/IMG_5034.MOV
-  python scripts/process_video_dfi.py videos/IMG_5034.MOV --no-voice --no-overlay
-  python scripts/process_video_dfi.py videos/IMG_5034.MOV --alpha 0.25 --beta 0.4 --gamma 0.35
+  python scripts/process_video_syntonia.py videos/IMG_5034.MOV
+  python scripts/process_video_syntonia.py videos/IMG_5034.MOV --no-voice --no-overlay
+  python scripts/process_video_syntonia.py videos/IMG_5034.MOV --alpha 0.25 --beta 0.4 --gamma 0.35
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from hands_pipeline import (  # noqa: E402
     REGION_WEIGHTS,
 )
 from voice_analytics import compute_voice  # noqa: E402
-from dfi import compute_dfi, DFI_DISCLAIMER  # noqa: E402
+from syntonia_model import compute_syntonia, SYNTONIA_DISCLAIMER  # noqa: E402
 
 
 HAND_CONNECTIONS = [
@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gamma", type=float, default=1.0 / 3.0, help="Micro-expr weight")
     p.add_argument("--threshold", type=float, default=3.0)
     p.add_argument("--window-s", type=float, default=5.0,
-                   help="DFI rolling window (s)")
+                   help="Syntonia rolling window (s)")
     p.add_argument("--fidget-window-s", type=float, default=15.0,
                    help="F(t) kinetic-density window (s)")
     p.add_argument("--no-voice", action="store_true")
@@ -175,7 +175,7 @@ def render_overlay_video(
     face_samples: List[TrapeziumSample],
     hands_samples: List[Optional[HandsSample]],
     sample_frame_idx: List[int],
-    dfi_report,
+    syntonia_report,
     fps: float, size: Tuple[int, int],
 ) -> None:
     cap = cv2.VideoCapture(str(src))
@@ -221,16 +221,16 @@ def render_overlay_video(
                     cv2.circle(frame, tuple(p), 4, (0, 255, 255), -1)
 
         si = frame_to_sample.get(frame_idx)
-        if si is not None and si < dfi_report.times.size:
-            dfi_v = float(dfi_report.dfi[si])
-            v_v = float(dfi_report.v[si])
-            f_v = float(dfi_report.f[si])
-            m_v = float(dfi_report.m[si])
-            color = (0, 0, 255) if dfi_v >= dfi_report.threshold else (
-                (0, 165, 255) if dfi_v >= dfi_report.threshold * 0.66 else (200, 200, 200))
+        if si is not None and si < syntonia_report.times.size:
+            dfi_v = float(syntonia_report.syntonia[si])
+            v_v = float(syntonia_report.v[si])
+            f_v = float(syntonia_report.f[si])
+            m_v = float(syntonia_report.m[si])
+            color = (0, 0, 255) if dfi_v >= syntonia_report.threshold else (
+                (0, 165, 255) if dfi_v >= syntonia_report.threshold * 0.66 else (200, 200, 200))
             cv2.putText(
                 frame,
-                f"t={fs.t:6.2f}s  DFI={dfi_v:5.2f}  V={v_v:4.2f}  F={f_v:4.2f}  M={m_v:4.2f}",
+                f"t={fs.t:6.2f}s  Syntonia={dfi_v:5.2f}  V={v_v:4.2f}  F={f_v:4.2f}  M={m_v:4.2f}",
                 (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2,
             )
             if hs is not None and hs.hand_state != "unknown":
@@ -253,9 +253,9 @@ def main() -> int:
     out_dir = args.out_dir or args.video.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = args.video.stem
-    out_png = out_dir / f"{stem}_dfi_report.png"
-    out_json = out_dir / f"{stem}_dfi_events.json"
-    out_mp4 = out_dir / f"{stem}_dfi_overlay.mp4"
+    out_png = out_dir / f"{stem}_syntonia_report.png"
+    out_json = out_dir / f"{stem}_syntonia_events.json"
+    out_mp4 = out_dir / f"{stem}_syntonia_overlay.mp4"
 
     # ---- 1. Face + Hands extraction ----------------------------------------
     face_samples, hands_samples, sample_frame_idx, fps, size = extract_face_and_hands(
@@ -328,13 +328,13 @@ def main() -> int:
             print(f"V(t): voice analysis failed: {e}")
             voice_result = None
 
-    # ---- 6. DFI(t) assembly -------------------------------------------------
+    # ---- 6. Syntonia(t) assembly -------------------------------------------------
     if voice_result is not None:
         v_times = voice_result.times
         v_values = voice_result.v
     else:
         v_times, v_values = None, None
-    dfi_report = compute_dfi(
+    syntonia_report = compute_syntonia(
         times,
         v_times, v_values,
         times, f_z,
@@ -342,20 +342,20 @@ def main() -> int:
         alpha=args.alpha, beta=args.beta, gamma=args.gamma,
         threshold=args.threshold, window_s=args.window_s,
     )
-    print(f"\nDFI(t): max={dfi_report.dfi.max():.2f}  "
-          f"mean={dfi_report.dfi.mean():.2f}  "
+    print(f"\nSyntonia(t): max={syntonia_report.syntonia.max():.2f}  "
+          f"mean={syntonia_report.syntonia.mean():.2f}  "
           f"threshold={args.threshold}  "
-          f"windows={len(dfi_report.windows)}")
-    for w in dfi_report.windows:
+          f"windows={len(syntonia_report.windows)}")
+    for w in syntonia_report.windows:
         print(f"  [{w.start_t:6.2f}, {w.end_t:6.2f}]s "
-              f"({w.duration_s:5.2f}s)  peak={w.peak_dfi:.2f}@{w.peak_t:.2f}s  "
+              f"({w.duration_s:5.2f}s)  peak={w.peak_syntonia:.2f}@{w.peak_t:.2f}s  "
               f"dominant={w.dominant_component}")
 
     # ---- 7. Plot ------------------------------------------------------------
     render_report_plot(
         out_png,
         face_report, au_result, hand_state_codes,
-        voice_result, dfi_report, args.baseline_seconds,
+        voice_result, syntonia_report, args.baseline_seconds,
     )
     print(f"\nSaved plot:   {out_png}")
 
@@ -391,7 +391,7 @@ def main() -> int:
                 "max_v": float(voice_result.v.max()),
             }
         ),
-        "dfi_summary": dfi_report.summary(),
+        "dfi_summary": syntonia_report.summary(),
         "face_events": [e.to_dict() for e in face_report.events],
     }
     out_json.write_text(json.dumps(payload, indent=2))
@@ -400,14 +400,14 @@ def main() -> int:
     # ---- 9. Overlay video ---------------------------------------------------
     if not args.no_overlay:
         render_overlay_video(args.video, out_mp4, face_samples, hands_samples,
-                             sample_frame_idx, dfi_report, fps, size)
+                             sample_frame_idx, syntonia_report, fps, size)
         print(f"Saved video:  {out_mp4}")
 
     return 0
 
 
 def render_report_plot(out_path, face_report, au_result, hand_state_codes,
-                       voice_result, dfi_report, baseline_seconds):
+                       voice_result, syntonia_report, baseline_seconds):
     n_rows = 6
     fig, axes = plt.subplots(n_rows, 1, figsize=(14, 13), sharex=True,
                              gridspec_kw={"height_ratios": [1.0] * n_rows})
@@ -428,33 +428,33 @@ def render_report_plot(out_path, face_report, au_result, hand_state_codes,
     axes[1].grid(alpha=0.3)
 
     # Panel 2: F(t) fidget
-    axes[2].plot(dfi_report.times, dfi_report.f, color="purple", lw=1.0)
+    axes[2].plot(syntonia_report.times, syntonia_report.f, color="purple", lw=1.0)
     axes[2].axhline(3.0, color="orange", ls="--", lw=0.8)
     axes[2].set_ylabel("F(t) σ-eq")
     axes[2].axvspan(0, baseline_seconds, alpha=0.08, color="gray")
     axes[2].grid(alpha=0.3)
 
     # Panel 3: V(t) voice
-    axes[3].plot(dfi_report.times, dfi_report.v, color="brown", lw=1.0)
+    axes[3].plot(syntonia_report.times, syntonia_report.v, color="brown", lw=1.0)
     if voice_result is not None:
         axes[3].axhline(3.0, color="orange", ls="--", lw=0.8)
     axes[3].set_ylabel("V(t) σ-eq")
     axes[3].axvspan(0, baseline_seconds, alpha=0.08, color="gray")
     axes[3].grid(alpha=0.3)
 
-    # Panel 4: DFI(t) with threshold + flagged windows
-    axes[4].plot(dfi_report.times, dfi_report.dfi, color="black", lw=1.2)
-    axes[4].axhline(dfi_report.threshold, color="red", ls="--", lw=1.0,
-                    label=f"threshold={dfi_report.threshold}")
-    for w in dfi_report.windows:
+    # Panel 4: Syntonia(t) with threshold + flagged windows
+    axes[4].plot(syntonia_report.times, syntonia_report.syntonia, color="black", lw=1.2)
+    axes[4].axhline(syntonia_report.threshold, color="red", ls="--", lw=1.0,
+                    label=f"threshold={syntonia_report.threshold}")
+    for w in syntonia_report.windows:
         axes[4].axvspan(w.start_t, w.end_t, alpha=0.18, color="red")
-    axes[4].set_ylabel("DFI(t)")
+    axes[4].set_ylabel("Syntonia(t)")
     axes[4].axvspan(0, baseline_seconds, alpha=0.08, color="gray")
     axes[4].grid(alpha=0.3)
     axes[4].legend(loc="upper right", fontsize=8)
 
     # Panel 5: hand state code over time
-    axes[5].plot(dfi_report.times, hand_state_codes, color="teal",
+    axes[5].plot(syntonia_report.times, hand_state_codes, color="teal",
                  lw=0.8, drawstyle="steps-post")
     axes[5].set_yticks([-1, 0, 1, 2, 3, 4])
     axes[5].set_yticklabels(["hidden", "A: together,still",
@@ -466,9 +466,9 @@ def render_report_plot(out_path, face_report, au_result, hand_state_codes,
     axes[5].grid(alpha=0.3)
 
     fig.suptitle(
-        f"DFI pipeline   α={dfi_report.alpha:.2f}  β={dfi_report.beta:.2f}  "
-        f"γ={dfi_report.gamma:.2f}  threshold={dfi_report.threshold}  "
-        f"window={dfi_report.window_s}s",
+        f"Syntonia pipeline   α={syntonia_report.alpha:.2f}  β={syntonia_report.beta:.2f}  "
+        f"γ={syntonia_report.gamma:.2f}  threshold={syntonia_report.threshold}  "
+        f"window={syntonia_report.window_s}s",
         fontsize=11,
     )
     plt.tight_layout()

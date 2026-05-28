@@ -1,6 +1,6 @@
 # Landing-page hero copy — multilingual
 
-Public-facing hero block for the DFI product, positioned for the global
+Public-facing hero block for the Syntonia score product, positioned for the global
 interview-candidate persona ("Priya"). Ready to drop into a landing page,
 sales sheet, or pitch-deck cover. Translation slots filled for the
 v1 launch languages.
@@ -38,7 +38,7 @@ landing-page structure stays identical; only the strings change.
 > # **Practice the interview that matters.**
 > ## **Privately. In your own language. Against your own baseline.**
 >
-> DFI is a behavioural-friction coach for high-stakes communication.
+> The Syntonia score is a behavioural-friction coach for high-stakes communication.
 > Record your practice on your own laptop. Find the exact moments your
 > composure cracked — across voice, face, and hand cues at once. Get the
 > verbatim sentence and the bodily signal that gave you away.
@@ -72,7 +72,7 @@ landing-page structure stays identical; only the strings change.
 > # **Practica la entrevista que importa.**
 > ## **Con privacidad. En tu propio idioma. Contra tu propia base.**
 >
-> DFI es un coach de fricción conductual para comunicación de alto
+> SyntoniaPro es un coach de fricción conductual para comunicación de alto
 > riesgo. Graba tu práctica en tu propio portátil. Encuentra los momentos
 > exactos en que tu compostura se rompió — en voz, rostro y manos a la
 > vez. Obtén la frase textual y la señal corporal que te delató.
@@ -108,7 +108,7 @@ landing-page structure stays identical; only the strings change.
 > # **Pratique a entrevista que importa.**
 > ## **Com privacidade. No seu próprio idioma. Contra a sua própria linha de base.**
 >
-> DFI é um coach de fricção comportamental para comunicação de alto
+> SyntoniaPro é um coach de fricção comportamental para comunicação de alto
 > risco. Grave sua prática no seu próprio laptop. Encontre os momentos
 > exatos em que sua compostura rachou — em voz, rosto e mãos ao mesmo
 > tempo. Receba a frase textual e o sinal corporal que te entregou.
@@ -145,7 +145,7 @@ landing-page structure stays identical; only the strings change.
 > # **Entraînez-vous pour l'entretien qui compte.**
 > ## **En privé. Dans votre propre langue. Par rapport à votre propre référence.**
 >
-> DFI est un coach de friction comportementale pour la communication à
+> SyntoniaPro est un coach de friction comportementale pour la communication à
 > fort enjeu. Enregistrez votre entraînement sur votre propre ordinateur
 > portable. Trouvez les moments exacts où votre maîtrise a flanché — voix,
 > visage et mains analysés ensemble. Obtenez la phrase exacte et le
@@ -184,7 +184,7 @@ landing-page structure stays identical; only the strings change.
 > # **Üben Sie das Vorstellungsgespräch, das zählt.**
 > ## **Privat. In Ihrer eigenen Sprache. Gegen Ihre eigene Basislinie.**
 >
-> DFI ist ein Verhaltens-Friktions-Coach für hochbrisante Kommunikation.
+> SyntoniaPro ist ein Verhaltens-Friktions-Coach für hochbrisante Kommunikation.
 > Nehmen Sie Ihre Übung auf Ihrem eigenen Laptop auf. Finden Sie die
 > exakten Momente, in denen Ihre Fassung brach — über Stimme, Gesicht und
 > Hände gleichzeitig. Erhalten Sie den wörtlichen Satz und das
@@ -221,7 +221,7 @@ landing-page structure stays identical; only the strings change.
 > # **Prova il colloquio che conta.**
 > ## **In privato. Nella tua lingua. Rispetto alla tua linea di base.**
 >
-> DFI è un coach di frizione comportamentale per la comunicazione ad
+> SyntoniaPro è un coach di frizione comportamentale per la comunicazione ad
 > alto impatto. Registra la tua prova sul tuo portatile. Trova i momenti
 > esatti in cui la tua compostezza ha ceduto — voce, viso e mani
 > analizzati insieme. Ottieni la frase esatta e il segnale corporeo che
@@ -258,7 +258,7 @@ landing-page structure stays identical; only the strings change.
 > # **जो इंटरव्यू मायने रखता है, उसकी तैयारी करें।**
 > ## **निजी तौर पर। अपनी भाषा में। अपनी ही बेसलाइन के सापेक्ष।**
 >
-> DFI ऊँचे दाँव वाले संचार के लिए एक व्यवहार-घर्षण कोच है। अपने लैपटॉप पर
+> Syntonia ऊँचे दाँव वाले संचार के लिए एक व्यवहार-घर्षण कोच है। अपने लैपटॉप पर
 > अपना अभ्यास रिकॉर्ड करें। ठीक उन क्षणों को खोजें जब आपकी संयम टूटी —
 > आवाज़, चेहरा और हाथ के संकेत एक साथ। वह वाक्य और शारीरिक संकेत मिलेगा
 > जिसने आपको पकड़वाया।
@@ -295,7 +295,7 @@ landing-page structure stays identical; only the strings change.
 > # **大事な面接の練習を。**
 > ## **プライベートに。あなたの言語で。あなた自身のベースラインに対して。**
 >
-> DFI は、ハイステークスなコミュニケーションのための行動摩擦コーチで
+> Syntonia は、ハイステークスなコミュニケーションのための行動摩擦コーチで
 > す。練習を自分のラップトップで録画。声・顔・手の合図を同時に分析し、
 > あなたの落ち着きが崩れた正確な瞬間を見つけ出します。そのときの発言
 > と、あなたを裏切った身体の信号を、そのまま受け取ります。
@@ -328,7 +328,7 @@ landing-page structure stays identical; only the strings change.
 > # **练习真正重要的那场面试。**
 > ## **私密。用你自己的语言。以你自己的基线为参照。**
 >
-> DFI 是为高风险沟通设计的行为摩擦教练。在你自己的笔记本上录制练习。
+> Syntonia 是为高风险沟通设计的行为摩擦教练。在你自己的笔记本上录制练习。
 > 同时分析声音、面部和手部线索，找出你自控力崩溃的确切时刻。获得当时
 > 的原话以及暴露你的身体信号。
 >
@@ -360,7 +360,7 @@ landing-page structure stays identical; only the strings change.
 > # **تدرّب على المقابلة التي تهمّ.**
 > ## **بخصوصية. بلغتك الخاصة. بمقارنة مع خطّك القاعدي الخاص.**
 >
-> DFI هو مدرّب احتكاك سلوكي للتواصل عالي المخاطر. سجّل تدريبك على حاسوبك
+> Syntonia هو مدرّب احتكاك سلوكي للتواصل عالي المخاطر. سجّل تدريبك على حاسوبك
 > المحمول. اعثر على اللحظات الدقيقة التي انهار فيها رباطة جأشك — في
 > الصوت والوجه واليدين معًا. احصل على الجملة الحرفية والإشارة الجسدية
 > التي كشفتك.

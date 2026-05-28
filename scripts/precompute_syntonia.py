@@ -1,14 +1,14 @@
-"""Pre-compute the full DFI pipeline for a video and cache to .npz.
+"""Pre-compute the full Syntonia pipeline for a video and cache to .npz.
 
 The real-time dashboard reads this cache so playback is instant.
 Re-run with --force to regenerate (e.g. after tuning weights).
 
 Outputs (next to the video, by default):
-  <stem>_dfi_cache.npz   — all per-frame timelines + DFI windows + config
+  <stem>_syntonia_cache.npz   — all per-frame timelines + Syntonia windows + config
 
 Usage:
-  python scripts/precompute_dfi.py videos/test-video-1.MOV
-  python scripts/precompute_dfi.py videos/test-video-1.MOV --force --alpha 0.25
+  python scripts/precompute_syntonia.py videos/test-video-1.MOV
+  python scripts/precompute_syntonia.py videos/test-video-1.MOV --force --alpha 0.25
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from hands_pipeline import (  # noqa: E402
 )
 from voice_analytics import compute_voice  # noqa: E402
 from voice_transcript import is_available as transcript_available, transcribe_audio  # noqa: E402
-from dfi import compute_dfi  # noqa: E402
+from syntonia_model import compute_syntonia  # noqa: E402
 
 
 def main() -> int:
@@ -71,7 +71,7 @@ def main() -> int:
     if not args.video.exists():
         print(f"Video not found: {args.video}")
         return 1
-    cache = args.video.parent / f"{args.video.stem}_dfi_cache.npz"
+    cache = args.video.parent / f"{args.video.stem}_syntonia_cache.npz"
     if args.ephemeral:
         print("--ephemeral: results will be computed in memory only; no cache written.")
     elif cache.exists() and not args.force:
@@ -199,8 +199,8 @@ def main() -> int:
             v_times, v_values = times, np.zeros_like(times)
             voice_meta = {"error": str(e)}
 
-    # DFI(t)
-    dfi_rep = compute_dfi(
+    # Syntonia(t)
+    syntonia_rep = compute_syntonia(
         times,
         v_times, v_values,
         times, f_z,
@@ -243,8 +243,8 @@ def main() -> int:
         # In-memory mode: emit the summary and exit without writing artifacts.
         print(f"\n[ephemeral] No cache written. "
               f"Summary: max M={au.m.max():.2f}σ  max F={f_z.max():.2f}σ  "
-              f"max V={v_values.max():.2f}σ  max DFI={dfi_rep.dfi.max():.2f}  "
-              f"breach windows={len(dfi_rep.windows)}")
+              f"max V={v_values.max():.2f}σ  max Syntonia={syntonia_rep.syntonia.max():.2f}  "
+              f"breach windows={len(syntonia_rep.windows)}")
         return 0
 
     np.savez(
@@ -258,7 +258,7 @@ def main() -> int:
         f_raw=f_raw,
         v_times=v_times,
         v_values=v_values,
-        dfi=dfi_rep.dfi,
+        syntonia=syntonia_rep.syntonia,
         regions=np.array(regions_per_frame),
         hand_state_codes=hand_state_codes,
         kinetic_per_frame=kinetic_per_frame,
@@ -282,22 +282,22 @@ def main() -> int:
             "region_weights": dict(REGION_WEIGHTS),
             "voice": voice_meta,
             "face_events": face_events,
-            "dfi_windows": [w.to_dict() for w in dfi_rep.windows],
+            "syntonia_windows": [w.to_dict() for w in syntonia_rep.windows],
             "summary": {
                 "n_face": int(len(face_samples)),
                 "n_hands": int(sum(1 for hs in hands_samples if hs and hs.n_hands > 0)),
                 "max_m": float(au.m.max()),
                 "max_f": float(f_z.max()),
                 "max_v": float(v_values.max()),
-                "max_dfi": float(dfi_rep.dfi.max()),
+                "max_syntonia": float(syntonia_rep.syntonia.max()),
             },
             "transcript": transcript_meta,
         }),
     )
     print(f"\nSaved cache: {cache}")
     print(f"Summary: max M={au.m.max():.2f}σ  max F={f_z.max():.2f}σ  "
-          f"max V={v_values.max():.2f}σ  max DFI={dfi_rep.dfi.max():.2f}  "
-          f"breach windows={len(dfi_rep.windows)}")
+          f"max V={v_values.max():.2f}σ  max Syntonia={syntonia_rep.syntonia.max():.2f}  "
+          f"breach windows={len(syntonia_rep.windows)}")
     return 0
 
 

@@ -1,13 +1,13 @@
-"""DFI Real-Time Analytics Dashboard.
+"""SyntoniaPro — Real-Time Analytics Dashboard.
 
 Synchronized playback of voice (V), fidget (F), and facial-mesh (M) channels
-plus the unified Deceptive Friction Index (DFI). When the DFI crosses the
+plus the unified Syntonia Model (Syntonia). When the Syntonia score crosses the
 configured threshold inside a 5-second rolling window, the dashboard surfaces
 the *exact moment a stimulus shatters the subject's baseline equilibrium*:
 
   * a banner at the breach time,
   * a text response with the threshold value (e.g.
-    `"DFI = 3.42 > 3.00 at t = 47.23s — dominant: M (face), feature
+    `"Syntonia = 3.42 > 3.00 at t = 47.23s — dominant: M (face), feature
     yaw_proxy peak 12.4σ"`),
   * a synchronized current-frame video preview with the trapezium and hand
     landmarks overlaid,
@@ -15,7 +15,7 @@ the *exact moment a stimulus shatters the subject's baseline equilibrium*:
 
 Two source modes:
 
-  * **Replay** — load a video file. Run ``precompute_dfi.py`` first to build
+  * **Replay** — load a video file. Run ``precompute_syntonia.py`` first to build
     the per-frame cache; the dashboard reads that cache instantly. Works
     everywhere, deterministic.
   * **Live** — same dashboard fed by a webcam + microphone stream. Designed
@@ -24,7 +24,7 @@ Two source modes:
 
 Run (replay):
 
-    python scripts/precompute_dfi.py videos/IMG_5034.MOV
+    python scripts/precompute_syntonia.py videos/IMG_5034.MOV
     streamlit run dashboard.py
 """
 
@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dfi import DFI_DISCLAIMER
+from syntonia_model import SYNTONIA_DISCLAIMER
 from voice_transcript import TranscriptResult
 
 
@@ -63,7 +63,7 @@ def load_cache(cache_path: str) -> dict:
         "f_z": npz["f_z"],
         "v_times": npz["v_times"],
         "v_values": npz["v_values"],
-        "dfi": npz["dfi"],
+        "syntonia": npz["syntonia"],
         "regions": npz["regions"],
         "hand_state_codes": npz["hand_state_codes"],
         "kinetic_per_frame": npz["kinetic_per_frame"],
@@ -105,7 +105,7 @@ def read_frame_at(cap, frame_idx: int) -> Optional[np.ndarray]:
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="DFI Real-Time Analytics",
+    page_title="SyntoniaPro — Real-Time Analytics",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -113,7 +113,7 @@ st.set_page_config(
 
 def main() -> None:
     st.markdown(
-        "<h1 style='margin-bottom:0'>DFI Real-Time Analytics</h1>"
+        "<h1 style='margin-bottom:0'>SyntoniaPro — Real-Time Analytics</h1>"
         "<div style='color:gray;font-size:0.9rem'>"
         "Synchronized voice + fidget + facial-mesh friction monitoring</div>",
         unsafe_allow_html=True,
@@ -133,11 +133,11 @@ def main() -> None:
 
         # Find available caches
         video_dir = REPO / "videos"
-        caches = sorted(video_dir.glob("*_dfi_cache.npz"))
+        caches = sorted(video_dir.glob("*_syntonia_cache.npz"))
         if not caches:
             st.error(
-                "No DFI caches found in `videos/`. Run:\n\n"
-                "    python scripts/precompute_dfi.py videos/<your.mp4>"
+                "No Syntonia caches found in `videos/`. Run:\n\n"
+                "    python scripts/precompute_syntonia.py videos/<your.mp4>"
             )
             st.stop()
 
@@ -148,8 +148,8 @@ def main() -> None:
         )
         st.divider()
         st.header("Thresholds")
-        live_threshold = st.slider("DFI threshold", 1.0, 6.0, 3.0, 0.1)
-        st.caption("Threshold used for the alarm banner. The cache stores the value of α, β, γ and the rolling-window length the DFI(t) curve was built with.")
+        live_threshold = st.slider("Syntonia threshold", 1.0, 6.0, 3.0, 0.1)
+        st.caption("Threshold used for the alarm banner. The cache stores the value of α, β, γ and the rolling-window length the Syntonia(t) curve was built with.")
         st.divider()
         st.header("Playback")
         play_speed = st.select_slider(
@@ -179,8 +179,8 @@ def main() -> None:
                     removed.append(p.name)
             elif delete_target == "all caches + plots + overlays":
                 patterns = [
-                    "*_dfi_cache.npz", "*_dfi_report.png", "*_dfi_events.json",
-                    "*_dfi_overlay.mp4", "dashboard_*.png", "*_report.png",
+                    "*_syntonia_cache.npz", "*_syntonia_report.png", "*_syntonia_events.json",
+                    "*_syntonia_overlay.mp4", "dashboard_*.png", "*_report.png",
                     "frame_*.jpg", "hands_*.jpg",
                 ]
                 for pat in patterns:
@@ -208,7 +208,7 @@ def main() -> None:
     duration = float(times[-1] - times[0]) if times.size else 0.0
     fps = float(meta["fps"])
     frame_idxs = data["sample_frame_idx"]
-    dfi = data["dfi"]
+    syntonia = data["syntonia"]
 
     # ---- Time control --------------------------------------------------------
     if "playhead_t" not in st.session_state:
@@ -282,18 +282,18 @@ def main() -> None:
         v_at = float(np.interp(cursor_t, data["v_times"], data["v_values"]))
         f_at = float(data["f_z"][cursor_idx])
         m_at = float(data["m"][cursor_idx])
-        dfi_at = float(dfi[cursor_idx])
+        syntonia_at = float(syntonia_arr[cursor_idx])
 
         status_color = (
-            "#d9534f" if dfi_at >= live_threshold else
-            "#f0ad4e" if dfi_at >= live_threshold * 0.66 else "#5cb85c"
+            "#d9534f" if syntonia_at >= live_threshold else
+            "#f0ad4e" if syntonia_at >= live_threshold * 0.66 else "#5cb85c"
         )
         st.markdown(
             f"<div style='padding:18px;background:#0f1116;border-left:6px solid {status_color};border-radius:6px'>"
             f"<div style='color:{status_color};font-size:0.85rem;font-weight:bold'>"
-            f"{'⚠ BREACH' if dfi_at >= live_threshold else '— stable —'}</div>"
+            f"{'⚠ BREACH' if syntonia_at >= live_threshold else '— stable —'}</div>"
             f"<div style='font-size:2.5rem;font-weight:bold;color:white'>"
-            f"DFI = {dfi_at:.2f}</div>"
+            f"Syntonia = {syntonia_at:.2f}</div>"
             f"<div style='color:#9aa0a6'>threshold = {live_threshold:.2f}</div>"
             f"</div>",
             unsafe_allow_html=True,
@@ -326,7 +326,7 @@ def main() -> None:
             "V (voice)": v_resampled,
             "F (fidget)": data["f_z"],
             "M (face)": data["m"],
-            "DFI": dfi,
+            "Syntonia": syntonia,
         }
     ).set_index("t")
 
@@ -342,7 +342,7 @@ def main() -> None:
         color=alt.Color(
             "channel",
             scale=alt.Scale(
-                domain=["V (voice)", "F (fidget)", "M (face)", "DFI"],
+                domain=["V (voice)", "F (fidget)", "M (face)", "Syntonia"],
                 range=["#a0522d", "#8a2be2", "#2e8b57", "#000000"],
             ),
         ),
@@ -376,15 +376,15 @@ def main() -> None:
 
     # ---- Event log: equilibrium breaches as text ---------------------------
     st.markdown("### ⚡ Equilibrium-shatter events")
-    dfi_windows = meta.get("dfi_windows", [])
+    syntonia_windows = meta.get("syntonia_windows", [])
     # Re-threshold against the live-tuned threshold (the cache stored a fixed one)
     live_breaches = [
-        i for i in range(len(times)) if dfi[i] >= live_threshold
+        i for i in range(len(times)) if syntonia_arr[i] >= live_threshold
     ]
-    if not live_breaches and not dfi_windows:
+    if not live_breaches and not syntonia_windows:
         st.success(
-            f"No DFI threshold breaches over {duration:.1f} s of recording. "
-            f"Max DFI = **{float(dfi.max()):.2f}** (threshold = {live_threshold:.2f})."
+            f"No Syntonia threshold breaches over {duration:.1f} s of recording. "
+            f"Max Syntonia = **{float(syntonia.max()):.2f}** (threshold = {live_threshold:.2f})."
         )
     else:
         # Group consecutive breach indices into windows.
@@ -402,9 +402,9 @@ def main() -> None:
             groups.append((start, prev))
 
         for si, ei in groups:
-            peak_local = si + int(np.argmax(dfi[si:ei + 1]))
+            peak_local = si + int(np.argmax(syntonia_arr[si:ei + 1]))
             peak_t = float(times[peak_local])
-            peak_dfi = float(dfi[peak_local])
+            peak_syntonia = float(syntonia_arr[peak_local])
             v_p = float(v_resampled[peak_local])
             f_p = float(data["f_z"][peak_local])
             m_p = float(data["m"][peak_local])
@@ -447,7 +447,7 @@ def main() -> None:
 
             st.markdown(
                 f"<div style='padding:12px;background:#2a1212;border-left:5px solid #d9534f;border-radius:4px;margin-bottom:8px'>"
-                f"<b style='color:#ff6b6b'>⚠ DFI = {peak_dfi:.2f} > {live_threshold:.2f}</b>"
+                f"<b style='color:#ff6b6b'>⚠ Syntonia = {peak_syntonia:.2f} > {live_threshold:.2f}</b>"
                 f" at <b>t = {peak_t:.2f}s</b> "
                 f"(window {float(times[si]):.2f}–{float(times[ei]):.2f}s, "
                 f"{float(times[ei] - times[si]):.2f}s)<br>"
@@ -477,7 +477,7 @@ def main() -> None:
 
     # ---- Disclaimer ---------------------------------------------------------
     st.markdown("---")
-    st.caption(f"**Interpretation note.** {DFI_DISCLAIMER}")
+    st.caption(f"**Interpretation note.** {SYNTONIA_DISCLAIMER}")
 
     # ---- Auto-play rerun ---------------------------------------------------
     if auto_play:

@@ -1,4 +1,4 @@
-"""Voice analytics — V(t) component of the DFI.
+"""Voice analytics — V(t) component of the Syntonia score.
 
 Extracts audio from a video file with ffmpeg, computes a per-second
 syllables-per-second (SPS) proxy via onset-strength peak picking, and (when

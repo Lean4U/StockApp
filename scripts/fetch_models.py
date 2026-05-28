@@ -1,4 +1,4 @@
-"""Cross-platform model staging for the DFI pipeline.
+"""Cross-platform model staging for the Syntonia score pipeline.
 
 Works on Windows, macOS, and Linux. Replaces scripts/fetch_models.sh.
 

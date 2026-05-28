@@ -176,7 +176,7 @@ def _load_model(model_dir: str, model_size: str, compute_type: str):
 
 def extract_audio_wav(video_path: Path, sample_rate: int = 16000) -> Path:
     """Extract mono 16 kHz WAV via ffmpeg into a tempfile. Caller deletes."""
-    out = Path(tempfile.mkstemp(suffix=".wav", prefix="dfi_asr_")[1])
+    out = Path(tempfile.mkstemp(suffix=".wav", prefix="syntonia_asr_")[1])
     subprocess.run(
         [
             "ffmpeg", "-y", "-loglevel", "error",
