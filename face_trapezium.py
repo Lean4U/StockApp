@@ -447,6 +447,72 @@ def fit_baseline(
     )
 
 
+# Features sensitive to hardware-condition drift (glasses position, distance
+# from camera, head pose) rather than the subject's behavioural state.
+# adapt_baseline() recalibrates ONLY these from a few seconds of every fresh
+# session, keeping the behavioural features (mouth corners, brow heights)
+# locked from the original enrollment.
+POSE_SENSITIVE_FEATURES: Tuple[str, ...] = (
+    "eye_line_norm",
+    "mouth_line_norm",
+    "side_left_norm",
+    "side_right_norm",
+    "side_eye_norm",
+    "side_mouth_norm",
+    "angle_LE",
+    "angle_RE",
+    "diag_LE_RM_norm",
+    "diag_RE_LM_norm",
+    "diag_ratio",
+    "eye_mouth_ratio",
+    "parallelism_residual",
+    "yaw_proxy",
+    "pitch_proxy",
+    "roll_proxy",
+)
+
+
+def adapt_baseline(
+    baseline: Baseline,
+    fresh_samples: Sequence[TrapeziumSample],
+    pose_features: Sequence[str] = POSE_SENSITIVE_FEATURES,
+    std_floor: float = _LIVE_STD_FLOOR,
+) -> Baseline:
+    """Return a copy of ``baseline`` whose hardware-sensitive features have
+    been re-fit from ``fresh_samples``. Mouth-corner, mouth-offset and brow
+    features stay locked to the original enrollment — those are the
+    behavioural signal we actually want to measure.
+
+    Use case: subject enrolled `julio_speaking_en` yesterday with glasses
+    sitting one way. Today the glasses slipped 2 mm. Without adaptation,
+    `side_eye_norm` and `angle_RE` register a sustained 15-sigma offset for
+    the entire session (geometric, not behavioural). With adaptation, the
+    first ~5 s of today's session re-fit those geometric features and the
+    detector goes back to flagging only actual behavioural deviations.
+    """
+    if len(fresh_samples) < 5:
+        return baseline
+    fresh = np.stack([feature_vector(s) for s in fresh_samples])
+    new_means = baseline.means.copy()
+    new_stds = baseline.stds.copy()
+    name_to_idx = {n: i for i, n in enumerate(baseline.feature_names)}
+    for name in pose_features:
+        j = name_to_idx.get(name)
+        if j is None:
+            continue
+        m = float(np.median(fresh[:, j]))
+        s = float(_MAD_TO_STD * np.median(np.abs(fresh[:, j] - m)))
+        new_means[j] = m
+        new_stds[j] = max(s, std_floor)
+    return Baseline(
+        feature_names=baseline.feature_names,
+        means=new_means,
+        stds=new_stds,
+        n_samples=baseline.n_samples,
+        duration_s=baseline.duration_s,
+    )
+
+
 def signature_distance(a: Baseline, b: Baseline) -> float:
     if a.means.shape != b.means.shape:
         return float("inf")
