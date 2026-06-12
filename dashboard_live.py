@@ -649,20 +649,44 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             f"border-radius:4px;font-size:0.75rem'>{label}</span>",
             unsafe_allow_html=True,
         )
-        st.caption(
+        st.markdown(
+            f"<div style='color:#c8d0db;font-size:0.92rem;margin-top:4px'>"
+            f"<b>What it measures.</b> {fx.physical}</div>",
+            unsafe_allow_html=True,
+        )
+        if fx.citation:
+            st.markdown(
+                f"<div style='color:#9aa0a6;font-size:0.88rem;margin-top:3px'>"
+                f"<b>Cited science.</b> {fx.citation}</div>",
+                unsafe_allow_html=True,
+            )
+        if fx.socratic:
+            st.markdown(
+                f"<div style='color:{color};font-size:0.88rem;font-style:italic;"
+                f"margin-top:3px'>"
+                f"A question to sit with: {fx.socratic}</div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            f"<div style='color:#6c757d;font-size:0.75rem;margin-top:6px'>"
             f"first at {r['earliest_start']:.2f}s · "
             f"latest at {r['latest_end']:.2f}s · "
-            f"{r['n_events']} window(s) · peak {r['peak_z']:.1f} σ"
+            f"{r['n_events']} window(s) · peak {r['peak_z']:.1f} σ</div>",
+            unsafe_allow_html=True,
         )
     with cols[2]:
         st.markdown(
             f"<div style='text-align:right'>"
-            f"<div style='font-size:1.4rem;font-weight:bold;color:{color}'>"
+            f"<div style='font-size:1.6rem;font-weight:bold;color:{color}'>"
             f"{r['weight_pct']:.0f}%</div>"
             f"<div style='font-size:0.75rem;color:#9aa0a6'>"
             f"of session weight</div></div>",
             unsafe_allow_html=True,
         )
+    st.markdown(
+        "<hr style='margin:8px 0;border:none;border-top:1px solid #2a2f3a'>",
+        unsafe_allow_html=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
