@@ -408,7 +408,7 @@ class Baseline:
         return hashlib.sha256(q.tobytes()).hexdigest()[:16]
 
 
-_STD_FLOOR = 1e-4
+_STD_FLOOR = 5e-3  # ≈ 0.5% — realistic MediaPipe landmark noise on a face-scale-normalized feature; 1-px jitter on a ~150-px face span is roughly 0.7%, so 5e-3 is a conservative noise floor that prevents z-score blow-ups when a very still enrollment under-samples the true MAD.
 _MAD_TO_STD = 1.4826  # consistent scaling so 1.4826 · MAD ≈ σ under Gaussian noise
 
 
