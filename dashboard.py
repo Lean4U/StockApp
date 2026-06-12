@@ -282,7 +282,7 @@ def main() -> None:
         v_at = float(np.interp(cursor_t, data["v_times"], data["v_values"]))
         f_at = float(data["f_z"][cursor_idx])
         m_at = float(data["m"][cursor_idx])
-        syntonia_at = float(syntonia_arr[cursor_idx])
+        syntonia_at = float(syntonia[cursor_idx])
 
         status_color = (
             "#d9534f" if syntonia_at >= live_threshold else
@@ -379,7 +379,7 @@ def main() -> None:
     syntonia_windows = meta.get("syntonia_windows", [])
     # Re-threshold against the live-tuned threshold (the cache stored a fixed one)
     live_breaches = [
-        i for i in range(len(times)) if syntonia_arr[i] >= live_threshold
+        i for i in range(len(times)) if syntonia[i] >= live_threshold
     ]
     if not live_breaches and not syntonia_windows:
         st.success(
@@ -402,9 +402,9 @@ def main() -> None:
             groups.append((start, prev))
 
         for si, ei in groups:
-            peak_local = si + int(np.argmax(syntonia_arr[si:ei + 1]))
+            peak_local = si + int(np.argmax(syntonia[si:ei + 1]))
             peak_t = float(times[peak_local])
-            peak_syntonia = float(syntonia_arr[peak_local])
+            peak_syntonia = float(syntonia[peak_local])
             v_p = float(v_resampled[peak_local])
             f_p = float(data["f_z"][peak_local])
             m_p = float(data["m"][peak_local])
