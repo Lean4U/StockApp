@@ -33,6 +33,7 @@ from face_trapezium import (
     Baseline,
     FaceTrapeziumDetector,
     TrapeziumSample,
+    _LIVE_STD_FLOOR,
     detect_sigma_changes,
     fit_baseline,
 )
@@ -149,7 +150,7 @@ def main() -> None:
         st.header("Enroll baseline")
         new_name = st.text_input("Name for current samples", value="")
         if st.button("Enroll", use_container_width=True):
-            base = fit_baseline(ss.samples)
+            base = fit_baseline(ss.samples, std_floor=_LIVE_STD_FLOOR)
             if base is None:
                 st.error("Need more samples first.")
             elif not new_name.strip():

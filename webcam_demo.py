@@ -29,6 +29,7 @@ from face_trapezium import (
     Baseline,
     FaceTrapeziumDetector,
     TrapeziumSample,
+    _LIVE_STD_FLOOR,
     detect_sigma_changes,
     feature_vector,
     fit_baseline,
@@ -152,7 +153,7 @@ def main() -> int:
                 start_t = None
                 print("cleared samples")
             elif key == ord("b"):
-                base = fit_baseline(samples)
+                base = fit_baseline(samples, std_floor=_LIVE_STD_FLOOR)
                 if base is None:
                     print("need more samples")
                     continue
@@ -162,7 +163,7 @@ def main() -> int:
                 print(f"enrolled '{name}'  hash={base.hash()}  "
                       f"n={base.n_samples}  duration={base.duration_s:.2f}s")
             elif key == ord("m"):
-                base = fit_baseline(samples)
+                base = fit_baseline(samples, std_floor=_LIVE_STD_FLOOR)
                 if base is None or not signatures:
                     print("need samples and at least one enrolled baseline")
                     continue
@@ -210,7 +211,7 @@ def main() -> int:
                           f"S={e['peak_cusum']:.2f}  "
                           f"feature={e['feature_name']}")
             elif key == ord("s"):
-                base = fit_baseline(samples)
+                base = fit_baseline(samples, std_floor=_LIVE_STD_FLOOR)
                 if base is None:
                     print("need more samples")
                     continue

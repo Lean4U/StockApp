@@ -408,13 +408,15 @@ class Baseline:
         return hashlib.sha256(q.tobytes()).hexdigest()[:16]
 
 
-_STD_FLOOR = 5e-3  # ≈ 0.5% — realistic MediaPipe landmark noise on a face-scale-normalized feature; 1-px jitter on a ~150-px face span is roughly 0.7%, so 5e-3 is a conservative noise floor that prevents z-score blow-ups when a very still enrollment under-samples the true MAD.
+_STD_FLOOR = 1e-4  # absolute minimum, used by synthetic tests.
+_LIVE_STD_FLOOR = 5e-3  # ≈ 0.5% — realistic MediaPipe noise floor on a 150-px face. Live callers pass this to keep tiny enrollment MADs from blowing up z-scores.
 _MAD_TO_STD = 1.4826  # consistent scaling so 1.4826 · MAD ≈ σ under Gaussian noise
 
 
 def fit_baseline(
     samples: Sequence[TrapeziumSample],
     robust: bool = True,
+    std_floor: float = _STD_FLOOR,
 ) -> Optional[Baseline]:
     """Compute the per-feature baseline statistics from an enrollment recording.
 
@@ -434,7 +436,7 @@ def fit_baseline(
     else:
         means = features.mean(axis=0)
         stds = features.std(axis=0)
-    stds = np.where(stds < _STD_FLOOR, _STD_FLOOR, stds)
+    stds = np.where(stds < std_floor, std_floor, stds)
     duration = float(samples[-1].t - samples[0].t)
     return Baseline(
         feature_names=FEATURE_NAMES,
