@@ -299,6 +299,8 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
         domain=[CATEGORY_LABEL[k] for k in CATEGORY_PALETTE],
         range=list(CATEGORY_PALETTE.values()),
     )
+    # Explicit selection so Streamlit can wire on_select="rerun" to it.
+    pt = alt.selection_point(name="picked", fields=["feature_short"], on="click", empty=False)
     chart = (
         alt.Chart(df_events)
         .mark_bar(opacity=0.85, cornerRadius=2)
@@ -311,6 +313,7 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
                 scale=color_scale,
                 legend=alt.Legend(title=None, orient="top"),
             ),
+            opacity=alt.condition(pt, alt.value(1.0), alt.value(0.55)),
             tooltip=[
                 alt.Tooltip("feature_short:N", title="What moved"),
                 alt.Tooltip("category:N", title="Category"),
@@ -322,6 +325,7 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
                 alt.Tooltip("peak_z:Q", title="peak σ", format=".2f"),
             ],
         )
+        .add_params(pt)
         .properties(height=22 * max(len(order), 1) + 60)
     )
     return chart
@@ -531,22 +535,22 @@ def render_insights_tab() -> None:
         interactive_timeline(rows, events),
         use_container_width=True,
         on_select="rerun",
-        selection_mode="point",
+        selection_mode="picked",
         key="timeline_chart",
     )
 
     # Selected moment detail (clip + transcript + plain language).
     selected_t: Optional[float] = None
     selected_feature: Optional[str] = None
-    if chart_event and chart_event.selection.get("param_1"):
-        # Streamlit returns selected points under a generated key; iterate to be safe.
-        for k, v in chart_event.selection.items():
-            if v:
-                sel = v[0]
-                selected_t = 0.5 * (sel["start_t"] + sel["end_t"])
-                # The Altair tooltip exposes the feature short name; we need
-                # the technical name. Map by short name.
-                short = sel.get("feature_short")
+    picked = (chart_event.selection or {}).get("picked") if chart_event else None
+    if picked:
+        sel = picked[0]
+        # The Altair selection echoes the bound fields back; we matched on
+        # feature_short, so the time mid-point comes from the picked row.
+        short = sel.get("feature_short")
+        for e in events:
+            if explain(e["dominant_feature"]).short == short:
+                selected_t = 0.5 * (e["start_t"] + e["end_t"])
                 for r in rows:
                     if explain(r["feature"]).short == short:
                         selected_feature = r["feature"]
