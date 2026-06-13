@@ -490,9 +490,12 @@ def render_spider_chart(
     feature_being_highlighted: str,
     accent_color: str,
 ) -> None:
-    """Polar (radar) chart comparing BASELINE (zeros) vs NOW (|z|) across
-    the curated _SPIDER_FEATURES. Rendered server-side via matplotlib and
-    embedded as a base64 PNG so it sits flush with the rest of the card.
+    """Polar (radar) chart comparing BASELINE (acceptable range, shaded
+    green) vs NOW (percent of breach threshold per dimension).
+
+    Axis labels are the technical feature names (the text that lives in
+    parentheses on the row title). Values are mapped from σ to percent
+    of breach via z/6 × 100, so σ-low = 50 %, σ-high = 100 %.
     """
     z_map = _zscores_at_time(peak_t, samples, baseline)
     if z_map is None:
@@ -506,37 +509,43 @@ def render_spider_chart(
     features = [f for f in _SPIDER_FEATURES if f in z_map]
     if not features:
         return
-    z_vals = [abs(z_map[f]) for f in features]
-    # Cap for display so a single 80-σ glasses-glitch doesn't eat the chart.
-    z_vals = [min(v, 10.0) for v in z_vals]
-    labels = [explain(f).short for f in features]
+
+    # Map σ → percent of breach threshold (6 σ = 100 %).
+    # Cap to 200 % so a single extreme outlier doesn't eat the chart.
+    pct_vals = [min(abs(z_map[f]) / 6.0 * 100.0, 200.0) for f in features]
+    labels = list(features)  # technical feature names (the "(parenthetical)" text)
 
     angles = np.linspace(0, 2 * np.pi, len(features), endpoint=False).tolist()
     angles += angles[:1]
-    baseline_vals = [0.0] * len(features) + [0.0]
-    now_vals = z_vals + [z_vals[0]]
+    now_vals = pct_vals + [pct_vals[0]]
 
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    fig, ax = plt.subplots(figsize=(7.5, 7.5), subplot_kw=dict(polar=True))
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#fafbfd")
 
-    ax.plot(angles, baseline_vals, color="#2a8a3a", linewidth=2,
-            label="BASELINE", marker="o", markersize=4)
-    ax.fill(angles, baseline_vals, color="#2a8a3a", alpha=0.18)
-    ax.plot(angles, now_vals, color=accent_color, linewidth=2,
-            label="NOW", marker="o", markersize=4)
+    # Green-shaded BASELINE acceptable range: full circle from 0 to 50 %.
+    theta_ring = np.linspace(0, 2 * np.pi, 200)
+    r_outer = np.full_like(theta_ring, 50.0)
+    ax.fill(theta_ring, r_outer, color="#2a8a3a", alpha=0.22,
+            label="BASELINE (within 50%)")
+    ax.plot(theta_ring, r_outer, color="#2a8a3a", linewidth=1.5)
+
+    # NOW polygon.
+    ax.plot(angles, now_vals, color=accent_color, linewidth=2.2,
+            label="NOW", marker="o", markersize=5)
     ax.fill(angles, now_vals, color=accent_color, alpha=0.22)
 
-    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=8,
-                      color="#1a1a1a")
-    rmax = max(max(z_vals) * 1.15, 6.5)
+    ax.set_thetagrids(
+        np.degrees(angles[:-1]), labels, fontsize=9, color="#1a1a1a"
+    )
+    rmax = max(max(pct_vals) * 1.15, 120.0)
     ax.set_ylim(0, rmax)
-    ax.set_rticks([3, 6])
-    ax.set_yticklabels(["3σ", "6σ"], fontsize=7, color="#555555")
+    ax.set_rticks([50, 100])
+    ax.set_yticklabels(["50%", "100%"], fontsize=8, color="#555555")
     ax.tick_params(axis="y", colors="#555555")
     ax.grid(color="#cccccc", linewidth=0.6)
     ax.spines["polar"].set_visible(False)
-    ax.legend(loc="upper right", bbox_to_anchor=(1.32, 1.10),
+    ax.legend(loc="lower right", bbox_to_anchor=(1.18, -0.08),
               fontsize=10, frameon=False)
 
     buf = BytesIO()
@@ -548,7 +557,7 @@ def render_spider_chart(
     st.markdown(
         f"<div style='text-align:center;margin-top:6px'>"
         f"<img src='data:image/png;base64,{b64}' "
-        f"style='width:100%;max-width:520px;height:auto'/>"
+        f"style='width:100%;height:auto'/>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -1270,6 +1279,14 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             f"margin-top:10px;font-weight:600'>{fx.socratic}</div>",
             unsafe_allow_html=True,
         )
+        st.markdown(
+            f"<div style='color:#404040;font-size:0.85rem;margin-top:4px;"
+            f"font-style:italic'>"
+            f"Your answer separates <b>context</b> (head pose, lighting, "
+            f"posture drift — absorbable by the adaptive baseline) from "
+            f"<b>behaviour</b> (a deliberate expression worth noticing).</div>",
+            unsafe_allow_html=True,
+        )
     if ss.transcript:
         spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
         if spoken:
@@ -1437,8 +1454,8 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
             f"{label}</div></div>"
         )
 
-    # Build the fusion overlay: same NOW frame, but draw the BASELINE
-    # trapezium on top in green so the geometric shift is visible.
+    # Build the fusion overlay: same NOW frame, with the BASELINE
+    # trapezium drawn on top in green so the geometric shift is visible.
     fusion_img = None
     if now_img is not None and baseline_sample is not None and now_box is not None:
         fusion_img = now_img.copy()  # already has the RED now-trap drawn
@@ -1451,39 +1468,29 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
             thickness=2,
         )
 
-    twin_row = (
-        f"<div style='display:flex;gap:16px;align-items:center;"
-        f"max-width:100%;margin:0 auto'>"
-        f"{panel(baseline_img, baseline_ring, 4, 'BASELINE', baseline_ring, dim=True)}"
-        f"<div style='color:{color};font-size:2.2rem;font-weight:bold;"
-        f"line-height:1'>→</div>"
-        f"{panel(now_img, color, border_w + 2, skew_label, color, dim=False)}"
+    if fusion_img is None:
+        return ""
+    ok, buf = cv2.imencode(".png", fusion_img)
+    if not ok:
+        return ""
+    import base64
+    b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+    src = f"data:image/png;base64,{b64}"
+    return (
+        f"<div style='margin-top:8px;text-align:center'>"
+        f"<div style='font-size:0.85rem;color:#0a0a0a;"
+        f"letter-spacing:1.5px;font-weight:bold;margin-bottom:8px'>"
+        f"OVERLAY "
+        f"<span style='color:{baseline_ring}'>● baseline</span> "
+        f"<span style='color:#0a0a0a'>vs</span> "
+        f"<span style='color:#d9534f'>● now</span>"
+        f"&nbsp;&nbsp;<span style='color:{color}'>({skew_label})</span>"
+        f"</div>"
+        f"<img src='{src}' style='width:100%;height:auto;"
+        f"border-radius:14px;border:2px solid #1a1a1a;"
+        f"box-shadow:0 0 14px {color}'/>"
         f"</div>"
     )
-
-    fusion_row = ""
-    if fusion_img is not None:
-        ok, buf = cv2.imencode(".png", fusion_img)
-        if ok:
-            import base64
-            b64 = base64.b64encode(buf.tobytes()).decode("ascii")
-            src = f"data:image/png;base64,{b64}"
-            fusion_row = (
-                f"<div style='margin-top:18px;text-align:center'>"
-                f"<div style='font-size:0.78rem;color:#0a0a0a;"
-                f"letter-spacing:1.5px;font-weight:bold;margin-bottom:6px'>"
-                f"OVERLAY "
-                f"<span style='color:{baseline_ring}'>● baseline</span> "
-                f"<span style='color:#0a0a0a'>vs</span> "
-                f"<span style='color:#d9534f'>● now</span>"
-                f"</div>"
-                f"<img src='{src}' style='width:60%;height:auto;"
-                f"border-radius:14px;border:2px solid #1a1a1a;"
-                f"box-shadow:0 0 12px {color}'/>"
-                f"</div>"
-            )
-
-    return twin_row + fusion_row
 
 
 def render_insights_tab() -> None:
@@ -1638,6 +1645,14 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                 f"<div style='color:{color};font-size:0.95rem;font-style:italic;"
                 f"margin-top:6px;font-weight:600'>"
                 f"{fx.socratic}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='color:#404040;font-size:0.8rem;margin-top:2px;"
+                f"font-style:italic'>"
+                f"Your answer separates <b>context</b> (head pose, lighting, "
+                f"posture drift — absorbable by the adaptive baseline) from "
+                f"<b>behaviour</b> (a deliberate expression worth noticing).</div>",
                 unsafe_allow_html=True,
             )
         if ss.transcript:
