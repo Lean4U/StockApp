@@ -34,6 +34,7 @@ from audio_capture import (
     text_within,
     transcribe,
 )
+from voice_command import VoiceCommandListener
 from face_trapezium import (
     Baseline,
     FaceTrapeziumDetector,
@@ -205,6 +206,35 @@ def get_detector() -> FaceTrapeziumDetector:
 @st.cache_resource
 def get_audio_recorder() -> AudioRecorder:
     return AudioRecorder()
+
+
+@st.cache_resource
+def get_voice_listener() -> VoiceCommandListener:
+    return VoiceCommandListener()
+
+
+def _toggle_recording_via_command(cmd: str) -> None:
+    """Start or stop a take in response to a voice command. Mirrors the
+    Record / Stop button handlers so the same state changes happen
+    regardless of whether the user clicked or spoke."""
+    ss = st.session_state
+    recorder = get_audio_recorder()
+    listener = get_voice_listener()
+    now = time.time()
+    if cmd == "record" and not ss.recording:
+        if not ss.samples:
+            ss.start_t = now
+        ss.recording = True
+        if recorder.available:
+            recorder.start(now)
+        # Free the mic for the take.
+        listener.suspend()
+    elif cmd == "stop" and ss.recording:
+        ss.recording = False
+        if recorder.available and recorder.recording:
+            recorder.stop()
+        # Resume listening only if the user still wants voice control.
+        listener.resume()
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1061,6 +1091,13 @@ def render_live_tab(
 
     @st.fragment(run_every="100ms")
     def live_tick():
+        # Voice-command poll: if the background listener has detected
+        # 'record' / 'stop' since the last tick, act on it now.
+        listener = get_voice_listener()
+        cmd = listener.consume_pending()
+        if cmd:
+            _toggle_recording_via_command(cmd)
+
         ok, frame = cap.read()
         if not ok:
             video_slot.warning("Camera read failed.")
@@ -2052,6 +2089,42 @@ def render_sidebar() -> dict:
             ),
         )
         st.header("🎬  Recording")
+        listener = get_voice_listener()
+        if listener.available:
+            voice_on = st.checkbox(
+                "🎤  Hands-free voice control",
+                value=listener.enabled,
+                key="voice_control_toggle",
+                help=(
+                    "Say 'record' (or 'start' / 'begin' / 'grabar' / "
+                    "'comenzar') to start a take. Say 'stop' (or 'halt' / "
+                    "'parar' / 'detener') to stop.\n\n"
+                    "Eliminates the hand and head movement that comes from "
+                    "clicking the Record button — the take you save is "
+                    "less contaminated by the act of starting it.\n\n"
+                    "Detection uses the same local Whisper-small model — "
+                    "no cloud. Listens in 1.5-s chunks while idle; pauses "
+                    "automatically while a take is being recorded so it "
+                    "doesn't fight for the microphone."
+                ),
+            )
+            if voice_on and not listener.enabled:
+                listener.enable()
+            elif not voice_on and listener.enabled:
+                listener.disable()
+            if listener.enabled:
+                heard = listener.last_transcript
+                if heard:
+                    st.caption(f"🎤 heard: _{heard}_")
+                else:
+                    st.caption(
+                        "🎤 listening… (loud enough for VAD, 1.5 s chunks)"
+                    )
+        else:
+            st.caption(
+                "🎤 voice control unavailable — install `sounddevice` to "
+                "enable hands-free record/stop."
+            )
         c1, c2 = st.columns(2)
         rec_help = (
             "Start or stop a take.\n\n"
