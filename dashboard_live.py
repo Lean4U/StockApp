@@ -1379,9 +1379,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
         st.markdown(
             f"<div style='color:#404040;font-size:0.85rem;margin-top:4px;"
             f"font-style:italic'>"
-            f"Your answer separates <b>context</b> (head pose, lighting, "
-            f"posture drift — absorbable by the adaptive baseline) from "
-            f"<b>behaviour</b> (a deliberate expression worth noticing).</div>",
+            f"{t('implication.html', st.session_state.get('out_lang','en'))}</div>",
             unsafe_allow_html=True,
         )
     if ss.transcript:
@@ -1396,20 +1394,22 @@ def _render_mobile_card(rank: int, r: dict) -> None:
                 f"{t('field.what_said', st.session_state.get('out_lang','en'))}</span> “{spoken}”</div>",
                 unsafe_allow_html=True,
             )
+    _lang_ts = st.session_state.get("out_lang", "en")
     st.markdown(
         f"<div style='color:#404040;font-size:0.82rem;margin-top:10px'>"
-        f"first at {r['earliest_start']:.2f} s · "
-        f"latest at {r['latest_end']:.2f} s · "
-        f"{r['n_events']} window(s)</div>",
+        f"{t('ts.first', _lang_ts)} {r['earliest_start']:.2f} s · "
+        f"{t('ts.latest', _lang_ts)} {r['latest_end']:.2f} s · "
+        f"{r['n_events']} {t('ts.windows', _lang_ts)}</div>",
         unsafe_allow_html=True,
     )
 
     # Section 3 (was Section 3 of three; first close-up was dropped).
+    _lang_bvn = st.session_state.get("out_lang", "en")
     st.markdown(
         "<div style='margin-top:24px;font-size:0.95rem;color:#0a0a0a;"
         "letter-spacing:2px;text-transform:uppercase;text-align:center;"
         "font-weight:bold'>"
-        "Baseline vs. now</div>",
+        f"{t('section.baseline_vs', _lang_bvn)}</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -1811,11 +1811,12 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                     f"{t('field.what_said', st.session_state.get('out_lang','en'))}</span> “{spoken}”</div>",
                     unsafe_allow_html=True,
                 )
+        _lang_it = st.session_state.get("out_lang", "en")
         st.markdown(
             f"<div style='color:#404040;font-size:0.78rem;margin-top:6px'>"
-            f"first at {r['earliest_start']:.2f}s · "
-            f"latest at {r['latest_end']:.2f}s · "
-            f"{r['n_events']} window(s)</div>",
+            f"{t('ts.first', _lang_it)} {r['earliest_start']:.2f}s · "
+            f"{t('ts.latest', _lang_it)} {r['latest_end']:.2f}s · "
+            f"{r['n_events']} {t('ts.windows', _lang_it)}</div>",
             unsafe_allow_html=True,
         )
     with cols[3]:

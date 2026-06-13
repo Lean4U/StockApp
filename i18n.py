@@ -84,6 +84,10 @@ _T: Dict[str, Dict[str, str]] = {
             "each spoke is one geometric dimension; the green ring is your "
             "stable zone, the red ring is the out-of-norm threshold"
         ),
+        "ts.first":            "first at",
+        "ts.latest":           "latest at",
+        "ts.windows":          "window(s)",
+        "section.baseline_vs": "Baseline vs. now",
     },
     "es": {
         "label.baseline":      "LÍNEA BASE",
@@ -131,6 +135,10 @@ _T: Dict[str, Dict[str, str]] = {
             "cada radio es una dimensión geométrica; el anillo verde es tu "
             "zona estable, el anillo rojo es el umbral de fuera de norma"
         ),
+        "ts.first":            "primera vez a",
+        "ts.latest":           "última vez a",
+        "ts.windows":          "ventana(s)",
+        "section.baseline_vs": "Línea base vs. ahora",
     },
 }
 
