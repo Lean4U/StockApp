@@ -690,7 +690,14 @@ def render_line_chart(
         z = (feats - baseline.means) / baseline.stds
         # Map σ to percent of out-of-norm: σ-high (6 σ) = 100 %.
         # Preserve sign so the trace can dip below the baseline rule too.
-        rows.append({"t": s.t, "pct": float(z[j]) / 6.0 * 100.0})
+        pct = float(z[j]) / 6.0 * 100.0
+        rows.append({
+            "t": s.t,
+            "pct": pct,
+            "abs_pct": abs(pct),
+            "t_int": int(round(s.t)),
+            "abs_pct_int": int(round(abs(pct))),
+        })
     df = pd.DataFrame(rows)
     if df.empty:
         return
@@ -732,8 +739,11 @@ def render_line_chart(
                 axis=alt.Axis(labelExpr="datum.value + '%'"),
             ),
             tooltip=[
-                alt.Tooltip("t:Q", format=".2f"),
-                alt.Tooltip("pct:Q", title=t("chart.y_pct", lang), format=".0f"),
+                alt.Tooltip("t_int:Q", title=t("chart.time", lang)),
+                alt.Tooltip(
+                    "abs_pct_int:Q",
+                    title=t("chart.y_pct", lang),
+                ),
             ],
         )
     )
