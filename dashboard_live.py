@@ -1763,9 +1763,15 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         f"border-bottom:1px dotted #d9534f' "
         f"title='{now_tooltip}'>{t('label.now_vs', lang)}</span>"
         f"</div>"
-        f"<img src='{src}' style='width:100%;height:auto;"
+        # Cap the displayed width so the border traces the image edge
+        # rather than the column edge; display:block + width:100% inside
+        # the cap means the border always sits flush against the photo
+        # as the user expands or shrinks the browser window.
+        f"<div style='max-width:520px;margin:0 auto'>"
+        f"<img src='{src}' style='display:block;width:100%;height:auto;"
         f"border-radius:14px;border:2px solid #1a1a1a;"
         f"box-shadow:0 0 14px {color}'/>"
+        f"</div>"
         f"</div>"
     )
 
