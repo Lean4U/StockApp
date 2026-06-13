@@ -527,12 +527,19 @@ def render_spider_chart(
     theta_ring = np.linspace(0, 2 * np.pi, 200)
     r_outer = np.full_like(theta_ring, 50.0)
     ax.fill(theta_ring, r_outer, color="#2a8a3a", alpha=0.22,
-            label="BASELINE (within 50%)")
+            label="BASELINE (Stable Zone)")
     ax.plot(theta_ring, r_outer, color="#2a8a3a", linewidth=1.5)
+
+    # Dashed BREACH circle at 100% — the σ-high threshold.
+    r_breach = np.full_like(theta_ring, 100.0)
+    ax.plot(theta_ring, r_breach, color="#d9534f",
+            linewidth=1.5, linestyle=(0, (5, 4)),
+            label="BREACH LINE (100% = σ-high)")
 
     # NOW polygon.
     ax.plot(angles, now_vals, color=accent_color, linewidth=2.2,
-            label="NOW", marker="o", markersize=5)
+            label="NOW (your face at this nuance)",
+            marker="o", markersize=5)
     ax.fill(angles, now_vals, color=accent_color, alpha=0.22)
 
     ax.set_thetagrids(
@@ -1343,18 +1350,25 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     baseline = _active_baseline()
     if baseline is not None:
         st.markdown(
-            "<div style='margin-top:24px;font-size:0.95rem;color:#0a0a0a;"
+            "<div style='margin-top:28px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
-            "font-weight:bold'>"
-            "Dimensional profile</div>",
+            "font-weight:800'>"
+            "Where Your Face Moved</div>"
+            "<div style='text-align:center;color:#404040;font-size:0.9rem;"
+            "font-style:italic;margin-top:4px'>"
+            "each spoke is one geometric dimension; the green ring is your "
+            "stable zone, the red ring is the breach line"
+            "</div>",
             unsafe_allow_html=True,
         )
         render_spider_chart(peak_t, ss.samples, baseline, r["feature"], color)
         st.markdown(
-            "<div style='margin-top:18px;font-size:0.95rem;color:#0a0a0a;"
+            "<div style='margin-top:22px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
-            "font-weight:bold'>"
-            "Timeline · " + explain(r["feature"]).short + "</div>",
+            "font-weight:800'>"
+            "How It Changed Over Time · "
+            + explain(r["feature"]).short
+            + "</div>",
             unsafe_allow_html=True,
         )
         render_line_chart(
