@@ -37,10 +37,12 @@ from audio_capture import (
 from face_trapezium import (
     Baseline,
     FaceTrapeziumDetector,
+    FEATURE_NAMES,
     TrapeziumSample,
     _LIVE_STD_FLOOR,
     adapt_baseline,
     detect_sigma_changes,
+    feature_vector,
     fit_baseline,
 )
 from feature_glossary import category, explain
@@ -76,6 +78,15 @@ CATEGORY_PALETTE = {
     "pose": "#f0ad4e",
     "hardware": "#6c757d",
     "other": "#5bc0de",
+}
+
+# Foreground colour to use for text drawn ON a category chip. Per WCAG
+# luminance: black wins on the red and amber chips, white on grey/blue.
+CATEGORY_TEXT = {
+    "behavioural": "#0a0a0a",
+    "pose": "#0a0a0a",
+    "hardware": "#ffffff",
+    "other": "#0a0a0a",
 }
 
 # Whisper language codes for the spoken-language picker in the sidebar.
@@ -387,6 +398,27 @@ def _draw_trap_on_crop(
     )
 
 
+def _active_baseline() -> Optional[Baseline]:
+    """Return the Baseline currently used for detection (adapted form when
+    the take has settled enough samples for the adapt window). Used by the
+    spider + line charts to compute z-scores on the same scale the
+    detector uses.
+    """
+    ss = st.session_state
+    if not ss.active_baseline_key:
+        return None
+    key = ss.active_baseline_key.replace(" (adapted)", "")
+    base = ss.signatures.get(key)
+    if base is None:
+        return None
+    if ss.active_baseline_key.endswith("(adapted)") and ss.samples:
+        cut_t = ss.samples[0].t + 5.0
+        adapt_samples = [s for s in ss.samples if s.t <= cut_t]
+        if len(adapt_samples) >= 5:
+            base = adapt_baseline(base, adapt_samples)
+    return base
+
+
 def baseline_payload():
     """Return (cropped_baseline_img, baseline_sample, scale, crop_box) for
     the earliest captured thumbnail, or None."""
@@ -415,6 +447,206 @@ def baseline_payload():
 # Colors used for trapezium overlays (BGR for cv2).
 TRAP_GREEN_BGR = (60, 200, 60)   # baseline
 TRAP_RED_BGR = (60, 60, 220)     # NOW
+
+# Curated subset of features to show on the spider chart per inflection.
+# 22 axes would be unreadable; these 12 cover brow, mouth, head pose,
+# trapezium sides and the parallelism / ratio summaries.
+_SPIDER_FEATURES = (
+    "left_brow_height_norm",
+    "right_brow_height_norm",
+    "angle_LM",
+    "angle_RM",
+    "mouth_offset_norm",
+    "side_left_norm",
+    "side_right_norm",
+    "yaw_proxy",
+    "pitch_proxy",
+    "roll_proxy",
+    "eye_mouth_ratio",
+    "diag_ratio",
+)
+
+
+def _zscores_at_time(
+    t: float,
+    samples: List[TrapeziumSample],
+    baseline: Optional[Baseline],
+) -> Optional[Dict[str, float]]:
+    """Return {feature_name: z_score} at the sample closest to ``t``."""
+    if not samples or baseline is None:
+        return None
+    sample_times = np.array([s.t for s in samples])
+    idx = int(np.argmin(np.abs(sample_times - t)))
+    sample = samples[idx]
+    feats = feature_vector(sample)
+    z = (feats - baseline.means) / baseline.stds
+    return {name: float(zi) for name, zi in zip(baseline.feature_names, z)}
+
+
+def render_spider_chart(
+    peak_t: float,
+    samples: List[TrapeziumSample],
+    baseline: Optional[Baseline],
+    feature_being_highlighted: str,
+    accent_color: str,
+) -> None:
+    """Polar (radar) chart comparing BASELINE (zeros) vs NOW (|z|) across
+    the curated _SPIDER_FEATURES. Rendered server-side via matplotlib and
+    embedded as a base64 PNG so it sits flush with the rest of the card.
+    """
+    z_map = _zscores_at_time(peak_t, samples, baseline)
+    if z_map is None:
+        return
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64
+
+    features = [f for f in _SPIDER_FEATURES if f in z_map]
+    if not features:
+        return
+    z_vals = [abs(z_map[f]) for f in features]
+    # Cap for display so a single 80-σ glasses-glitch doesn't eat the chart.
+    z_vals = [min(v, 10.0) for v in z_vals]
+    labels = [explain(f).short for f in features]
+
+    angles = np.linspace(0, 2 * np.pi, len(features), endpoint=False).tolist()
+    angles += angles[:1]
+    baseline_vals = [0.0] * len(features) + [0.0]
+    now_vals = z_vals + [z_vals[0]]
+
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#fafbfd")
+
+    ax.plot(angles, baseline_vals, color="#2a8a3a", linewidth=2,
+            label="BASELINE", marker="o", markersize=4)
+    ax.fill(angles, baseline_vals, color="#2a8a3a", alpha=0.18)
+    ax.plot(angles, now_vals, color=accent_color, linewidth=2,
+            label="NOW", marker="o", markersize=4)
+    ax.fill(angles, now_vals, color=accent_color, alpha=0.22)
+
+    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=8,
+                      color="#1a1a1a")
+    rmax = max(max(z_vals) * 1.15, 6.5)
+    ax.set_ylim(0, rmax)
+    ax.set_rticks([3, 6])
+    ax.set_yticklabels(["3σ", "6σ"], fontsize=7, color="#555555")
+    ax.tick_params(axis="y", colors="#555555")
+    ax.grid(color="#cccccc", linewidth=0.6)
+    ax.spines["polar"].set_visible(False)
+    ax.legend(loc="upper right", bbox_to_anchor=(1.32, 1.10),
+              fontsize=10, frameon=False)
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight",
+                dpi=110, facecolor="#ffffff")
+    plt.close(fig)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode("ascii")
+    st.markdown(
+        f"<div style='text-align:center;margin-top:6px'>"
+        f"<img src='data:image/png;base64,{b64}' "
+        f"style='width:100%;max-width:520px;height:auto'/>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_line_chart(
+    samples: List[TrapeziumSample],
+    baseline: Optional[Baseline],
+    feature: str,
+    window: tuple,
+    accent_color: str,
+) -> None:
+    """Time-series of the dominant feature's z-score over the take.
+    BASELINE drawn as the green zero line, NOW drawn as the deviation
+    trace, with the inflection window highlighted in the accent colour
+    and σ-low / σ-high thresholds dashed.
+    """
+    if not samples or baseline is None:
+        return
+    if feature not in baseline.feature_names:
+        return
+    j = list(baseline.feature_names).index(feature)
+    rows = []
+    for s in samples:
+        feats = feature_vector(s)
+        z = (feats - baseline.means) / baseline.stds
+        rows.append({"t": s.t, "z": float(z[j])})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return
+
+    base_line = (
+        alt.Chart(pd.DataFrame({"y": [0]}))
+        .mark_rule(color="#2a8a3a", strokeWidth=2)
+        .encode(y="y:Q")
+    )
+    threshold_low = (
+        alt.Chart(pd.DataFrame({"y": [3, -3]}))
+        .mark_rule(color="#9aa0a6", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+    threshold_high = (
+        alt.Chart(pd.DataFrame({"y": [6, -6]}))
+        .mark_rule(color="#d9534f", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+
+    win_layer = None
+    if window:
+        win_df = pd.DataFrame({"start": [window[0]], "end": [window[1]]})
+        win_layer = (
+            alt.Chart(win_df)
+            .mark_rect(color=accent_color, opacity=0.18)
+            .encode(x="start:Q", x2="end:Q")
+        )
+
+    now_line = (
+        alt.Chart(df)
+        .mark_line(color=accent_color, strokeWidth=2)
+        .encode(
+            x=alt.X("t:Q", title="time (s)"),
+            y=alt.Y("z:Q", title="z-score (σ vs BASELINE)"),
+            tooltip=[
+                alt.Tooltip("t:Q", format=".2f"),
+                alt.Tooltip("z:Q", format=".2f"),
+            ],
+        )
+    )
+
+    legend_chart = alt.Chart(
+        pd.DataFrame(
+            {
+                "label": ["BASELINE", "NOW", "σ-low (3.0)", "σ-high (6.0)"],
+                "color": ["#2a8a3a", accent_color, "#9aa0a6", "#d9534f"],
+                "x": [0, 1, 2, 3],
+            }
+        )
+    ).mark_point(filled=True, size=120).encode(
+        x=alt.X(
+            "label:N",
+            title=None,
+            axis=alt.Axis(
+                labelAngle=0, labelColor="#1a1a1a", labelFontWeight="bold"
+            ),
+        ),
+        color=alt.Color(
+            "color:N",
+            scale=None,
+            legend=None,
+        ),
+    ).properties(height=40)
+
+    layers = [base_line, threshold_low, threshold_high, now_line]
+    if win_layer is not None:
+        layers.insert(0, win_layer)
+    chart = alt.layer(*layers).properties(height=180)
+    full = alt.vconcat(chart, legend_chart).resolve_scale(color="independent")
+    st.altair_chart(full, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -959,7 +1191,7 @@ def render_mobile_tab() -> None:
                 f"<div style='text-align:center;font-weight:bold;"
                 f"font-size:1rem;padding-top:6px;color:#0a0a0a;"
                 f"letter-spacing:1px'>"
-                f"INFLECTION {ss.mobile_idx + 1} OF {total}"
+                f"MOMENT {ss.mobile_idx + 1} OF {total}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -1003,8 +1235,9 @@ def _render_mobile_card(rank: int, r: dict) -> None:
         f"justify-content:space-between;color:#0a0a0a'>"
         f"<div style='font-size:1.1rem;font-weight:bold;color:#0a0a0a'>"
         f"#{rank} · {fx.short}</div>"
-        f"<span style='background:{color};color:white;padding:3px 10px;"
-        f"border-radius:4px;font-size:0.78rem;font-weight:bold'>{label}</span>"
+        f"<span style='background:{color};color:{CATEGORY_TEXT[cat]};"
+        f"padding:3px 10px;border-radius:4px;font-size:0.78rem;"
+        f"font-weight:bold'>{label}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -1070,8 +1303,35 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     )
     twin_html = _mobile_twin_html(r, peak_t, color)
     st.markdown(twin_html, unsafe_allow_html=True)
+
+    # Spider + line charts.
+    baseline = _active_baseline()
+    if baseline is not None:
+        st.markdown(
+            "<div style='margin-top:24px;font-size:0.95rem;color:#0a0a0a;"
+            "letter-spacing:2px;text-transform:uppercase;text-align:center;"
+            "font-weight:bold'>"
+            "Dimensional profile</div>",
+            unsafe_allow_html=True,
+        )
+        render_spider_chart(peak_t, ss.samples, baseline, r["feature"], color)
+        st.markdown(
+            "<div style='margin-top:18px;font-size:0.95rem;color:#0a0a0a;"
+            "letter-spacing:2px;text-transform:uppercase;text-align:center;"
+            "font-weight:bold'>"
+            "Timeline · " + explain(r["feature"]).short + "</div>",
+            unsafe_allow_html=True,
+        )
+        render_line_chart(
+            ss.samples,
+            baseline,
+            r["feature"],
+            window=(best["start_t"], best["end_t"]),
+            accent_color=color,
+        )
+
     st.markdown(
-        "<hr style='margin:24px 0;border:none;border-top:1px solid #2a2f3a'>",
+        "<hr style='margin:24px 0;border:none;border-top:1px solid #cccccc'>",
         unsafe_allow_html=True,
     )
 
@@ -1231,7 +1491,7 @@ def render_insights_tab() -> None:
         )
         return
 
-    st.markdown("### Ranked unique inflection points")
+    st.markdown("### Ranked unique moments")
     st.caption(
         "One row per distinct feature, sorted by impact (duration × peak σ). "
         "No duplicates: each feature appears once with its peak frame."
@@ -1251,8 +1511,9 @@ def _render_moment(feature: str, t: float) -> None:
     st.markdown(
         f"<div style='border:1px solid {color};border-radius:6px;"
         f"padding:14px;margin-top:6px;background:#0e1117'>"
-        f"<div style='display:inline-block;background:{color};color:white;"
-        f"padding:2px 10px;border-radius:4px;font-size:0.8rem'>{label}</div>"
+        f"<div style='display:inline-block;background:{color};"
+        f"color:{CATEGORY_TEXT[cat]};padding:2px 10px;border-radius:4px;"
+        f"font-size:0.8rem;font-weight:bold'>{label}</div>"
         f"&nbsp;&nbsp;<b>{fx.short}</b> at t ≈ {t:.2f} s",
         unsafe_allow_html=True,
     )
@@ -1327,8 +1588,9 @@ def _render_inflection_row(rank: int, r: dict) -> None:
         st.markdown(
             f"<span style='color:#0a0a0a;font-weight:bold'>{fx.short}</span>"
             f" &nbsp;"
-            f"<span style='background:{color};color:white;padding:1px 8px;"
-            f"border-radius:4px;font-size:0.75rem'>{label}</span>",
+            f"<span style='background:{color};color:{CATEGORY_TEXT[cat]};"
+            f"padding:1px 8px;border-radius:4px;font-size:0.75rem;"
+            f"font-weight:bold'>{label}</span>",
             unsafe_allow_html=True,
         )
         st.markdown(
