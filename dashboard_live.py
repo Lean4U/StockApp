@@ -1304,6 +1304,24 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     twin_html = _mobile_twin_html(r, peak_t, color)
     st.markdown(twin_html, unsafe_allow_html=True)
 
+    # Side label + severity ladder + severity word (per request:
+    # matches the Insights tab's "RIGHT brow ▶ / 4-pip bar / NOTICEABLE"
+    # descriptor block).
+    _, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+    severity = severity_word(r["peak_z"])
+    bars_html = severity_bar_html(r["peak_z"], color)
+    st.markdown(
+        f"<div style='text-align:center;margin-top:18px'>"
+        f"<div style='font-size:1.05rem;color:{color};font-weight:bold;"
+        f"letter-spacing:1.2px'>{side_label}</div>"
+        f"<div style='margin-top:12px'>{bars_html}</div>"
+        f"<div style='font-size:0.88rem;color:{color};margin-top:10px;"
+        f"letter-spacing:2px;text-transform:uppercase;font-weight:bold'>"
+        f"{severity}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
     # Spider + line charts.
     baseline = _active_baseline()
     if baseline is not None:
