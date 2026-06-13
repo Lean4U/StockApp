@@ -2576,6 +2576,14 @@ def _render_voice_command_poller() -> None:
     @st.fragment(run_every="200ms")
     def _voice_tick():
         listener = get_voice_listener()
+        # Show a toast for every command actually detected, even if it
+        # didn't change the recording state (e.g. 'stop' said while not
+        # recording). Gives the user clear feedback that the listener
+        # IS hearing them.
+        announce = listener.take_announcement()
+        if announce:
+            label = "🎙 Recording started" if announce == "record" else "⏹ Recording stopped"
+            st.toast(f"{label}  (heard: '{announce}')", icon="🎤")
         cmd = listener.consume_pending()
         if not cmd:
             return

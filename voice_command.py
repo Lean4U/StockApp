@@ -50,6 +50,8 @@ except Exception:  # pragma: no cover
 
 SAMPLE_RATE = 16000
 CHUNK_DURATION_S = 1.5
+POLL_INTERVAL_S = 0.4
+BUFFER_DURATION_S = 3.0
 SILENCE_PEAK = 0.012
 COMMAND_COOLDOWN_S = 1.0
 
@@ -92,6 +94,23 @@ class VoiceCommandListener:
         self._commands_detected: int = 0
         self._model_loaded: bool = False
         self._last_chunk_peak: float = 0.0
+        # Continuous-capture state — replaces the chunked sd.rec() loop
+        # so words can't fall in the gap between consecutive captures.
+        self._buffer = np.zeros(0, dtype=np.float32)
+        self._buffer_lock = threading.Lock()
+        self._stream = None
+        # Used by the dashboard to show a toast on every command detected.
+        self._last_command: Optional[str] = None
+        self._last_command_announce_time: float = 0.0
+
+    def take_announcement(self) -> Optional[str]:
+        """Return the most recently fired command exactly once, so the
+        dashboard can show a toast that announces it. Returns None on
+        subsequent calls until another command is detected."""
+        with self._lock:
+            cmd = self._last_command
+            self._last_command = None
+            return cmd
 
     @property
     def last_error(self) -> str:
@@ -208,29 +227,75 @@ class VoiceCommandListener:
                 self._last_error = f"model load failed: {e}"
             return False
 
+    def _audio_callback(self, indata, frames, t, status) -> None:
+        """Continuous capture callback — append to the circular buffer."""
+        if not self._active:
+            return
+        flat = indata.copy().flatten()
+        with self._buffer_lock:
+            self._buffer = np.concatenate([self._buffer, flat])
+            max_samples = int(SAMPLE_RATE * BUFFER_DURATION_S)
+            if len(self._buffer) > max_samples:
+                self._buffer = self._buffer[-max_samples:]
+
+    def _ensure_stream(self) -> bool:
+        if self._stream is not None:
+            return True
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+            return True
+        except Exception as e:
+            with self._lock:
+                self._last_error = f"stream open failed: {e}"
+            self._stream = None
+            return False
+
+    def _close_stream(self) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:
+            pass
+        self._stream = None
+
     def _loop(self) -> None:
         if not self._ensure_model():
             self._active = False
             return
+        if not self._ensure_stream():
+            self._active = False
+            return
         chunk_samples = int(SAMPLE_RATE * CHUNK_DURATION_S)
-        while self._active:
-            try:
-                audio = sd.rec(
-                    chunk_samples,
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    dtype="float32",
-                )
-                sd.wait()
+        try:
+            while self._active:
+                # Sleep first so the first tick has audio in the buffer.
+                time.sleep(POLL_INTERVAL_S)
                 if not self._active:
                     break
-                wav = audio.flatten()
+                # Take the most-recent 1.5 s slice from the rolling buffer.
+                with self._buffer_lock:
+                    if len(self._buffer) < chunk_samples:
+                        continue
+                    wav = self._buffer[-chunk_samples:].copy()
                 peak = float(np.max(np.abs(wav)))
                 self._last_chunk_peak = peak
                 self._chunks_processed += 1
                 if peak < SILENCE_PEAK:
                     continue
-                cmd = self._classify(wav)
+                try:
+                    cmd = self._classify(wav)
+                except Exception as e:
+                    with self._lock:
+                        self._last_error = f"classify error: {e}"
+                    continue
                 if cmd is None:
                     continue
                 now = time.time()
@@ -238,12 +303,16 @@ class VoiceCommandListener:
                     continue
                 with self._lock:
                     self._pending = cmd
+                    self._last_command = cmd
+                    self._last_command_announce_time = now
                 self._commands_detected += 1
                 self._last_command_time = now
-            except Exception as e:
-                with self._lock:
-                    self._last_error = f"loop error: {e}"
-                time.sleep(0.4)
+                # Drop the buffer after a successful command so the same
+                # utterance can't trigger again in the next slice.
+                with self._buffer_lock:
+                    self._buffer = np.zeros(0, dtype=np.float32)
+        finally:
+            self._close_stream()
 
     def _classify(self, wav: np.ndarray) -> Optional[str]:
         """Transcribe a single audio chunk, update last_transcript, return
