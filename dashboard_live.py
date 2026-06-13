@@ -266,9 +266,51 @@ def draw_trapezium(img: np.ndarray, sample: TrapeziumSample, recording: bool) ->
         cv2.circle(img, (bx, by), 4, (180, 255, 0), -1)
     cx, cy = int(sample.centroid[0]), int(sample.centroid[1])
     cv2.circle(img, (cx, cy), 5, (255, 255, 0), -1)
-    status = "REC" if recording else "idle"
-    color = (0, 0, 255) if recording else (180, 180, 180)
-    cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    _draw_recording_overlay(img, recording)
+
+
+def _draw_recording_overlay(img: np.ndarray, recording: bool) -> None:
+    """Big, unmissable REC / IDLE overlay drawn directly onto the live
+    webcam frame. When recording: pulsing red border, large 'REC' badge
+    with a blinking dot, and the elapsed take duration. When idle: small
+    grey 'IDLE' tag in the corner.
+    """
+    h, w = img.shape[:2]
+    if recording:
+        # Pulsing red border: thickness oscillates between 4 and 10 px
+        # over a ~1-second cycle so the user sees motion at the edges.
+        pulse = int(7 + 3 * np.sin(time.time() * 4))
+        cv2.rectangle(img, (0, 0), (w - 1, h - 1), (40, 40, 230), pulse)
+        # Translucent dark strip for the badge.
+        cv2.rectangle(img, (0, 0), (340, 70), (0, 0, 0), -1)
+        # Blinking red dot — full bright for 0.6 s, dim for 0.4 s.
+        on = (time.time() % 1.0) < 0.6
+        dot_color = (40, 40, 235) if on else (60, 60, 110)
+        cv2.circle(img, (32, 35), 12, dot_color, -1)
+        cv2.putText(
+            img, "REC", (58, 47),
+            cv2.FONT_HERSHEY_DUPLEX, 1.1, (60, 60, 235), 2, cv2.LINE_AA,
+        )
+        start_t = st.session_state.get("start_t")
+        if start_t is not None:
+            elapsed = max(0.0, time.time() - start_t)
+            cv2.putText(
+                img,
+                f"{elapsed:5.1f} s",
+                (140, 47),
+                cv2.FONT_HERSHEY_DUPLEX,
+                0.9,
+                (230, 230, 230),
+                2,
+                cv2.LINE_AA,
+            )
+    else:
+        cv2.rectangle(img, (0, 0), (110, 36), (0, 0, 0), -1)
+        cv2.circle(img, (20, 18), 7, (170, 170, 170), -1)
+        cv2.putText(
+            img, "IDLE", (38, 24),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.62, (200, 200, 200), 1, cv2.LINE_AA,
+        )
 
 
 def thumbnail_capture(frame: np.ndarray, sample_idx: int, every: int = 3) -> None:
@@ -2390,6 +2432,81 @@ def render_sidebar() -> dict:
 # Main
 # ─────────────────────────────────────────────────────────────────────────
 
+_RECORDING_CSS = """
+<style>
+@keyframes syntonia_pulse {
+  0%   { transform: scale(1);   opacity: 1; }
+  50%  { transform: scale(1.4); opacity: 0.55; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.syntonia-rec-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #d9534f;
+  margin-right: 10px;
+  animation: syntonia_pulse 1s ease-in-out infinite;
+  box-shadow: 0 0 10px #d9534f;
+}
+.syntonia-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 2px;
+  margin: 6px 0 12px 0;
+}
+.syntonia-banner.rec {
+  background: #fdecea;
+  color: #a94442;
+  border: 2px solid #d9534f;
+}
+.syntonia-banner.idle {
+  background: #f1f5f9;
+  color: #404040;
+  border: 1px solid #c8d0db;
+}
+</style>
+"""
+
+
+def _render_recording_banner() -> None:
+    """Top-of-page banner that pulses red while recording, grey while idle.
+    Visible across every tab so voice-driven takes have a clear visual."""
+    ss = st.session_state
+    st.markdown(_RECORDING_CSS, unsafe_allow_html=True)
+    if ss.recording:
+        elapsed = 0.0
+        if ss.start_t is not None:
+            elapsed = max(0.0, time.time() - ss.start_t)
+        st.markdown(
+            f"<div class='syntonia-banner rec'>"
+            f"<span class='syntonia-rec-dot'></span>"
+            f"RECORDING · {elapsed:0.1f} s · "
+            f"{len(ss.samples)} frames"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        n = len(ss.samples)
+        if n > 0:
+            dur = ss.samples[-1].t - ss.samples[0].t if ss.samples else 0.0
+            text = (
+                f"IDLE · take captured ({n} frames · {dur:0.1f} s) — "
+                f"Detect to see nuances"
+            )
+        else:
+            text = "IDLE · ready to record"
+        st.markdown(
+            f"<div class='syntonia-banner idle'>{text}</div>",
+            unsafe_allow_html=True,
+        )
+
+
 def main() -> None:
     st.set_page_config(page_title="SyntoniaPro — Live", layout="wide")
     init_state()
@@ -2403,6 +2520,10 @@ def main() -> None:
         "Local webcam → face geometry → behavioural insights. "
         "No cloud, no data leaves this device."
     )
+
+    # Top-of-page recording state banner, visible from every tab so the
+    # user always knows whether their voice-triggered take is rolling.
+    _render_recording_banner()
 
     tab_live, tab_insights, tab_mobile, tab_tech, tab_guide = st.tabs(
         ["📹 Live", "🎯 Insights", "📱 Mobile", "🔬 Technical", "❓ Guide"]
