@@ -636,11 +636,22 @@ def render_spider_chart(
     ax.tick_params(axis="y", colors="#555555")
     ax.grid(color="#cccccc", linewidth=0.6)
     ax.spines["polar"].set_visible(False)
-    ax.legend(loc="lower right", bbox_to_anchor=(1.18, -0.08),
-              fontsize=10, frameon=False)
+    # Place the legend WELL BELOW the chart so it never sits on top of
+    # an axis category label. bbox_to_anchor uses axes-fraction
+    # coordinates: y < 0 is under the plotting area.
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=1,
+        fontsize=10,
+        frameon=False,
+    )
 
     buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight",
+    # subplots_adjust gives the legend a dedicated band; bbox_inches='tight'
+    # then crops without clipping the legend itself.
+    fig.subplots_adjust(bottom=0.22)
+    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.25,
                 dpi=110, facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
