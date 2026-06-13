@@ -28,6 +28,7 @@ class FeatureExplanation:
     physical: str         # what the feature actually measures (geometric)
     candidates: List[str] # plausible physical movements that produce a deviation
     citation: Optional[str] = None  # named published source if applicable
+    science_summary: Optional[str] = None  # plain-language one-liner of what the science says
     socratic: str = ""    # the question the dashboard puts to the subject
 
 
@@ -144,6 +145,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
         ],
         citation="Delor et al. 2021 — facial asymmetry predicts genuineness "
                  "judgements (Frontiers in Psychology 12, 727446).",
+        science_summary=(
+            "When one corner of a smile moves more than the other, the smile "
+            "reads as genuine. Perfectly symmetric smiles often read as "
+            "performative or forced."
+        ),
         socratic=(
             "Was the expression here lopsided — one side moving more than the other?"
         ),
@@ -158,6 +164,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
         ],
         citation="Delor et al. 2021 — facial asymmetry predicts genuineness "
                  "judgements (Frontiers in Psychology 12, 727446).",
+        science_summary=(
+            "When one corner of a smile moves more than the other, the smile "
+            "reads as genuine. Perfectly symmetric smiles often read as "
+            "performative or forced."
+        ),
         socratic="Did one side of your mouth move more than the other?",
     ),
     "diag_LE_RM_norm": FeatureExplanation(
@@ -200,6 +211,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
             "Camera angle changed",
         ],
         citation="Delor et al. 2021 (asymmetry → genuineness).",
+        science_summary=(
+            "Diagonal asymmetry of the face shifts in micro-seconds when "
+            "emotion is genuine. Forced expressions tend to keep the "
+            "diagonals balanced."
+        ),
         socratic="Was your head pointed straight at the camera here?",
     ),
     "eye_mouth_ratio": FeatureExplanation(
@@ -242,6 +258,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
         ],
         citation="Ekman & Friesen — FACS AU 1 (Inner Brow Raiser) and AU 2 "
                  "(Outer Brow Raiser).",
+        science_summary=(
+            "The brow flash — both brows up for about 200 ms — is a "
+            "cross-cultural signal of attention or recognition. A one-sided "
+            "raise is more often a question, a check-in or scepticism."
+        ),
         socratic="Were you surprised, concentrating, or asking a question?",
     ),
     "right_brow_height_norm": FeatureExplanation(
@@ -256,6 +277,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
             "Asymmetric brow raise (only one side)",
         ],
         citation="Ekman & Friesen — FACS AU 1 / AU 2.",
+        science_summary=(
+            "The brow flash — both brows up for about 200 ms — is a "
+            "cross-cultural signal of attention or recognition. A one-sided "
+            "raise is more often a question, a check-in or scepticism."
+        ),
         socratic="Were you surprised, concentrating, or asking a question?",
     ),
     "yaw_proxy": FeatureExplanation(
@@ -311,6 +337,11 @@ _GLOSSARY: Dict[str, FeatureExplanation] = {
         citation="Delor et al. 2021 — asymmetric mouth movements are the "
                  "single most reliable visible marker of forced vs spontaneous "
                  "smile.",
+        science_summary=(
+            "Mouth offset from the face midline is the strongest single "
+            "indicator of whether a smile is spontaneous: spontaneous smiles "
+            "are visibly lopsided, forced smiles are not."
+        ),
         socratic="Did the expression pull more to one side than the other?",
     ),
 }

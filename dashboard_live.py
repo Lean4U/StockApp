@@ -78,6 +78,26 @@ CATEGORY_PALETTE = {
     "other": "#5bc0de",
 }
 
+# Whisper language codes for the spoken-language picker in the sidebar.
+# None = auto-detect (Whisper picks its best guess from the first 30 s
+# of audio). Per the cross-language trial, forcing the correct language
+# meaningfully improves transcript accuracy on shorter takes.
+_LANGUAGE_OPTIONS: "Dict[str, Optional[str]]" = {
+    "Auto-detect": None,
+    "English": "en",
+    "Spanish": "es",
+    "Portuguese": "pt",
+    "Hindi": "hi",
+    "Tamil": "ta",
+    "Japanese": "ja",
+    "Mandarin Chinese": "zh",
+    "Arabic": "ar",
+    "French": "fr",
+    "German": "de",
+    "Italian": "it",
+    "Yoruba": "yo",
+}
+
 # Visual descriptors for each feature: (pictograph, side-asymmetry label).
 # All face-region features use the neutral bust-silhouette (👤) — no race,
 # no gender, no expression baked in. Pose and geometric features use
@@ -300,7 +320,21 @@ def _face_crop_box(
 def crop_to_face_at_time(
     t: float, samples: List[TrapeziumSample]
 ) -> Optional[np.ndarray]:
-    """Return a tight face-crop of the thumbnail captured closest to ``t``."""
+    """Return a head + shoulders crop of the thumbnail captured closest to t."""
+    payload = _crop_payload_at_time(t, samples)
+    if payload is None:
+        return None
+    cropped, _, _, _ = payload
+    return cropped
+
+
+def _crop_payload_at_time(
+    t: float, samples: List[TrapeziumSample]
+):
+    """Return (cropped_image, sample, scale, crop_box) for time t, or None.
+    crop_box is (left, top, right, bottom) in thumbnail coordinates so callers
+    can translate landmark coordinates onto the cropped image.
+    """
     rec = _nearest_thumb_record(t, samples)
     if rec is None:
         return None
@@ -310,13 +344,77 @@ def crop_to_face_at_time(
     else:
         thumb, scale = payload, 1.0
     if sample_idx >= len(samples):
-        return thumb
+        return thumb, None, scale, (0, 0, thumb.shape[1], thumb.shape[0])
     sample = samples[sample_idx]
     box = _face_crop_box(sample, scale, thumb.shape)
     if box is None:
-        return thumb
+        h, w = thumb.shape[:2]
+        return thumb, sample, scale, (0, 0, w, h)
     left, top, right, bottom = box
-    return thumb[top:bottom, left:right]
+    cropped = thumb[top:bottom, left:right].copy()
+    return cropped, sample, scale, box
+
+
+def _draw_trap_on_crop(
+    img: np.ndarray,
+    sample: Optional[TrapeziumSample],
+    scale: float,
+    crop_box: tuple,
+    color_bgr: tuple,
+    thickness: int = 2,
+) -> None:
+    """Draw the trapezium polyline onto a cropped image in-place."""
+    if sample is None:
+        return
+    left, top, _, _ = crop_box
+    pts = []
+    for p in (
+        sample.left_eye[:2],
+        sample.right_eye[:2],
+        sample.right_mouth[:2],
+        sample.left_mouth[:2],
+    ):
+        tx = int(p[0] * scale - left)
+        ty = int(p[1] * scale - top)
+        pts.append([tx, ty])
+    cv2.polylines(
+        img,
+        [np.array(pts, dtype=np.int32)],
+        isClosed=True,
+        color=color_bgr,
+        thickness=thickness,
+        lineType=cv2.LINE_AA,
+    )
+
+
+def baseline_payload():
+    """Return (cropped_baseline_img, baseline_sample, scale, crop_box) for
+    the earliest captured thumbnail, or None."""
+    thumbs = st.session_state.frame_thumbnails
+    samples = st.session_state.samples
+    if not thumbs or not samples:
+        return None
+    first_key = next(iter(thumbs))
+    if first_key >= len(samples):
+        return None
+    payload = thumbs[first_key]
+    if isinstance(payload, tuple):
+        thumb, scale = payload
+    else:
+        thumb, scale = payload, 1.0
+    sample = samples[first_key]
+    box = _face_crop_box(sample, scale, thumb.shape)
+    if box is None:
+        h, w = thumb.shape[:2]
+        box = (0, 0, w, h)
+    left, top, right, bottom = box
+    cropped = thumb[top:bottom, left:right].copy()
+    return cropped, sample, scale, box
+
+
+# Colors used for trapezium overlays (BGR for cv2).
+TRAP_GREEN_BGR = (60, 200, 60)   # baseline
+TRAP_RED_BGR = (60, 60, 220)     # NOW
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -924,6 +1022,15 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
             unsafe_allow_html=True,
         )
+    if fx.science_summary:
+        st.markdown(
+            f"<div style='color:#1a1a1a;font-size:0.95rem;margin-top:4px;"
+            f"line-height:1.45;padding:8px 12px;background:#f6f8fc;"
+            f"border-left:3px solid #1a1a1a;border-radius:4px'>"
+            f"<b style='color:#0a0a0a'>In plain language.</b> "
+            f"{fx.science_summary}</div>",
+            unsafe_allow_html=True,
+        )
     if fx.socratic:
         st.markdown(
             f"<div style='color:{color};font-size:1.0rem;font-style:italic;"
@@ -970,24 +1077,54 @@ def _render_mobile_card(rank: int, r: dict) -> None:
 
 
 def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
-    """Twin baseline-vs-now panels rendered larger and side-by-side, sized
-    to fit a phone column."""
-    ss = st.session_state
-    is_face = r["feature"] in _FACE_FEATURES
-    if is_face:
-        baseline_face = baseline_face_crop()
-        now_face = crop_to_face_at_time(peak_t, ss.samples)
-    else:
-        baseline_face = baseline_thumbnail()
-        now_face = thumbnail_at_time(peak_t, ss.samples)
+    """Twin baseline-vs-now panels rendered larger and side-by-side.
 
-    if baseline_face is None:
-        baseline_face = ss.avatar_bgr
-    if now_face is None:
-        now_face = ss.avatar_bgr
+    Both panels are head + shoulders crops regardless of feature type so
+    every inflection looks the same scale. Baseline gets a GREEN trapezium
+    drawn onto it; NOW gets a RED trapezium. A third image stacked below
+    overlays both trapezia onto the NOW frame so the geometric shift is
+    visible at a glance.
+    """
+    ss = st.session_state
+    baseline = baseline_payload()
+    now = _crop_payload_at_time(peak_t, ss.samples)
+
+    baseline_img = baseline_sample = baseline_scale = baseline_box = None
+    if baseline is not None:
+        baseline_img, baseline_sample, baseline_scale, baseline_box = baseline
+    now_img = now_sample = now_scale = now_box = None
+    if now is not None:
+        now_img, now_sample, now_scale, now_box = now
+
+    # Draw colour-coded trapezia in-place.
+    if baseline_img is not None:
+        _draw_trap_on_crop(
+            baseline_img,
+            baseline_sample,
+            baseline_scale or 1.0,
+            baseline_box,
+            TRAP_GREEN_BGR,
+            thickness=2,
+        )
+    if now_img is not None:
+        _draw_trap_on_crop(
+            now_img,
+            now_sample,
+            now_scale or 1.0,
+            now_box,
+            TRAP_RED_BGR,
+            thickness=2,
+        )
+
+    # Fall back to the user's avatar if no take frames yet.
+    if baseline_img is None:
+        baseline_img = ss.avatar_bgr
+    if now_img is None:
+        now_img = ss.avatar_bgr
 
     baseline_ring = "#5cb85c"
     border_w = min(6, max(2, int(r["peak_z"] // 3)))
+    skew_label = f"NOW ({r['peak_z']:.1f}σ)"
 
     def panel(bgr, ring, ring_w, label, label_color, dim):
         # `dim` only changes the RING colour + the glow — the image itself
@@ -1022,15 +1159,53 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
             f"{label}</div></div>"
         )
 
-    return (
+    # Build the fusion overlay: same NOW frame, but draw the BASELINE
+    # trapezium on top in green so the geometric shift is visible.
+    fusion_img = None
+    if now_img is not None and baseline_sample is not None and now_box is not None:
+        fusion_img = now_img.copy()  # already has the RED now-trap drawn
+        _draw_trap_on_crop(
+            fusion_img,
+            baseline_sample,
+            now_scale or 1.0,
+            now_box,
+            TRAP_GREEN_BGR,
+            thickness=2,
+        )
+
+    twin_row = (
         f"<div style='display:flex;gap:16px;align-items:center;"
         f"max-width:100%;margin:0 auto'>"
-        f"{panel(baseline_face, baseline_ring, 4, 'BASELINE', baseline_ring, dim=True)}"
+        f"{panel(baseline_img, baseline_ring, 4, 'BASELINE', baseline_ring, dim=True)}"
         f"<div style='color:{color};font-size:2.2rem;font-weight:bold;"
         f"line-height:1'>→</div>"
-        f"{panel(now_face, color, border_w + 2, 'NOW', color, dim=False)}"
+        f"{panel(now_img, color, border_w + 2, skew_label, color, dim=False)}"
         f"</div>"
     )
+
+    fusion_row = ""
+    if fusion_img is not None:
+        ok, buf = cv2.imencode(".png", fusion_img)
+        if ok:
+            import base64
+            b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+            src = f"data:image/png;base64,{b64}"
+            fusion_row = (
+                f"<div style='margin-top:18px;text-align:center'>"
+                f"<div style='font-size:0.78rem;color:#0a0a0a;"
+                f"letter-spacing:1.5px;font-weight:bold;margin-bottom:6px'>"
+                f"OVERLAY "
+                f"<span style='color:{baseline_ring}'>● baseline</span> "
+                f"<span style='color:#0a0a0a'>vs</span> "
+                f"<span style='color:#d9534f'>● now</span>"
+                f"</div>"
+                f"<img src='{src}' style='width:60%;height:auto;"
+                f"border-radius:14px;border:2px solid #1a1a1a;"
+                f"box-shadow:0 0 12px {color}'/>"
+                f"</div>"
+            )
+
+    return twin_row + fusion_row
 
 
 def render_insights_tab() -> None:
@@ -1167,6 +1342,15 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                 f"<div style='color:#2c2c2c;font-size:0.9rem;margin-top:3px;"
                 f"line-height:1.4'>"
                 f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
+                unsafe_allow_html=True,
+            )
+        if fx.science_summary:
+            st.markdown(
+                f"<div style='color:#1a1a1a;font-size:0.9rem;margin-top:3px;"
+                f"line-height:1.4;padding:6px 10px;background:#f6f8fc;"
+                f"border-left:3px solid #1a1a1a;border-radius:4px'>"
+                f"<b style='color:#0a0a0a'>In plain language.</b> "
+                f"{fx.science_summary}</div>",
                 unsafe_allow_html=True,
             )
         if fx.socratic:
@@ -1390,6 +1574,19 @@ def render_sidebar() -> dict:
                     ss.avatar_bgr = None
                     st.rerun()
 
+        st.header("🌐  Language")
+        language_choice = st.selectbox(
+            "Spoken language",
+            options=list(_LANGUAGE_OPTIONS.keys()),
+            index=0,
+            help=(
+                "What language you'll be speaking. Locks the transcriber so "
+                "Spanish words don't get heard as English homophones, etc. "
+                "Leave on Auto-detect if you're not sure."
+            ),
+        )
+        language_code = _LANGUAGE_OPTIONS[language_choice]
+
         st.header("🎯  Baseline")
         names = list(ss.signatures.keys())
         baseline_choice = st.selectbox(
@@ -1506,7 +1703,9 @@ def render_sidebar() -> dict:
                         try:
                             saved = recorder.save_wav(wav_path)
                             if saved:
-                                ss.transcript = transcribe(wav_path)
+                                ss.transcript = transcribe(
+                                    wav_path, language=language_code
+                                )
                                 st.success(
                                     f"Transcript ready ({len(ss.transcript)} segments)."
                                 )
@@ -1532,6 +1731,7 @@ def render_sidebar() -> dict:
         "sigma_low": sigma_low,
         "sigma_high": sigma_high,
         "run_live": run_live,
+        "language_code": language_code,
     }
 
 
