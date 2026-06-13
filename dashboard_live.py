@@ -730,6 +730,15 @@ def render_line_chart(
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#fafbfd")
 
+    # Stable-zone shading — mirrors the spider chart's green annulus.
+    # Drawn FIRST so the inflection-window shading and the trace sit
+    # visibly on top of it.
+    ax.axhspan(
+        -50, 50,
+        color="#2a8a3a", alpha=0.18,
+        label=t("chart.spider.baseline", lang),
+    )
+
     # Inflection-window shading (labelled this time).
     if window:
         ax.axvspan(
@@ -738,13 +747,14 @@ def render_line_chart(
             label=t("chart.legend.episode", lang),
         )
 
-    # Threshold rules.
+    # Threshold rules. BASELINE (0%) line stays as the solid green rule;
+    # the watch-line entry is implicit in the green band's ±50 % edges.
     ax.axhline(0, color="#2a8a3a", linewidth=2,
                label=t("chart.legend.baseline", lang))
-    ax.axhline(50, color="#9aa0a6", linewidth=1.4,
+    ax.axhline(50, color="#2a8a3a", linewidth=1.2,
                linestyle=(0, (5, 4)),
                label=t("chart.legend.watch", lang))
-    ax.axhline(-50, color="#9aa0a6", linewidth=1.4,
+    ax.axhline(-50, color="#2a8a3a", linewidth=1.2,
                linestyle=(0, (5, 4)))
     ax.axhline(100, color="#d9534f", linewidth=1.4,
                linestyle=(0, (5, 4)),
