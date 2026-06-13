@@ -2240,22 +2240,36 @@ def render_sidebar() -> dict:
             help="Grab the current webcam frame and use it as your avatar.",
         ):
             snap_cap = get_camera(int(camera_idx))
+            # The cached cv2.VideoCapture is being read every 100 ms by
+            # the live_tick fragment; without flushing the buffer first,
+            # snap.read() returns whichever frame the live loop just
+            # consumed, which on macOS lands on a stale image. Drop
+            # several frames to force a fresh capture.
+            for _ in range(6):
+                snap_cap.grab()
             ok, frame = snap_cap.read()
-            if ok:
+            if ok and frame is not None and frame.size > 0:
                 isolated = crop_to_face_avatar(frame, size=256)
                 if isolated is not None:
                     ss.avatar_bgr = isolated
-                    st.success("Avatar set — face isolated, background hidden.")
+                    st.toast(
+                        "📸 Avatar set — face isolated, background hidden.",
+                        icon="✅",
+                    )
                 else:
                     # Fallback: no face detected → save the centre square.
                     ss.avatar_bgr = crop_to_square(frame)
-                    st.warning(
-                        "No face detected — saved a centre square crop. "
-                        "Move closer to the camera and try again for "
-                        "background isolation."
+                    st.toast(
+                        "📸 No face detected — saved a centre square crop. "
+                        "Move closer to the camera for background isolation.",
+                        icon="⚠️",
                     )
+                st.rerun(scope="app")
             else:
-                st.error("Could not read from the webcam.")
+                st.error(
+                    "Could not read from the webcam — is another app "
+                    "using it, or is the camera privacy switch off?"
+                )
         if ss.avatar_bgr is not None:
             cols_av = st.columns([1, 1])
             with cols_av[0]:
@@ -2785,6 +2799,31 @@ def _render_recording_banner() -> None:
                 f"<div class='syntonia-banner idle'>{text}</div>",
                 unsafe_allow_html=True,
             )
+        # Voice listener health line under the main banner. Always
+        # visible while voice control is enabled so the user can see at
+        # a glance whether the listener is actually alive.
+        try:
+            listener = get_voice_listener()
+            if listener.enabled:
+                if not listener.model_loaded:
+                    st.caption("🎤 voice control: ⏳ loading Whisper model…")
+                elif listener.last_error:
+                    st.caption(f"🎤 voice control: ⚠ {listener.last_error}")
+                elif listener.chunks_processed == 0:
+                    st.caption(
+                        "🎤 voice control: ✅ model ready · 0 chunks yet "
+                        "— check mic permission"
+                    )
+                else:
+                    st.caption(
+                        f"🎤 voice control: ✅ listening · "
+                        f"{listener.chunks_processed} chunks · "
+                        f"{listener.commands_detected} cmds · "
+                        f"peak {listener.last_chunk_peak:.2f} · "
+                        f"last heard: '{listener.last_transcript[:60]}'"
+                    )
+        except Exception:
+            pass
 
     _banner_tick()
 
@@ -2810,10 +2849,12 @@ def _render_voice_command_poller() -> None:
         if not cmd:
             return
         _toggle_recording_via_command(cmd)
-        # Full app rerun so the recording banner, sidebar button label,
-        # and Live-tab webcam overlay all reflect the new state on the
-        # same voice command.
-        st.rerun()
+        # Full APP rerun (not fragment-scoped) so the banner, button
+        # label, Live-tab webcam overlay etc. all transition together
+        # on the same voice command. The default st.rerun() from inside
+        # a fragment only reruns the fragment itself, which doesn't
+        # touch any of those.
+        st.rerun(scope="app")
 
     _voice_tick()
 
