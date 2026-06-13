@@ -1575,14 +1575,17 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             .replace("&nbsp;", " ")
         )
         # Data callout above the line chart: nuance number + feature title.
-        # Dotted underline + cursor:help signal that the chip is hover-
-        # interactive; native browser tooltip surfaces the implication.
+        # Size + weight scaled up to be proportional / promotional to the
+        # 'HOW IT CHANGED OVER TIME' section header that sits directly
+        # below it (1.35 rem, weight 800).
         st.markdown(
-            f"<div style='text-align:center;margin-top:22px;margin-bottom:4px'>"
-            f"<span style='display:inline-block;padding:6px 14px;"
-            f"background:#f6f8fc;border:1px solid #c8d0db;border-radius:18px;"
-            f"font-size:0.95rem;font-weight:700;color:#0a0a0a;"
-            f"cursor:help;border-bottom:2px dotted {color}' "
+            f"<div style='text-align:center;margin-top:24px;margin-bottom:6px'>"
+            f"<span style='display:inline-block;padding:10px 20px;"
+            f"background:#f6f8fc;border:1px solid #c8d0db;border-radius:24px;"
+            f"font-size:1.30rem;font-weight:800;color:#0a0a0a;"
+            f"letter-spacing:0.5px;"
+            f"cursor:help;border-bottom:3px dotted {color};"
+            f"box-shadow:0 1px 3px rgba(0,0,0,0.05)' "
             f"title='{implication_plain}'>"
             f"#{rank} · {fx.short}"
             f"</span></div>",
