@@ -1133,13 +1133,8 @@ def render_live_tab(
 
     @st.fragment(run_every="100ms")
     def live_tick():
-        # Voice-command poll: if the background listener has detected
-        # 'record' / 'stop' since the last tick, act on it now.
-        listener = get_voice_listener()
-        cmd = listener.consume_pending()
-        if cmd:
-            _toggle_recording_via_command(cmd)
-
+        # Voice-command polling moved to a dedicated top-level fragment
+        # in main() so commands fire regardless of active tab.
         ok, frame = cap.read()
         if not ok:
             video_slot.warning("Camera read failed.")
@@ -2476,35 +2471,63 @@ _RECORDING_CSS = """
 
 def _render_recording_banner() -> None:
     """Top-of-page banner that pulses red while recording, grey while idle.
-    Visible across every tab so voice-driven takes have a clear visual."""
-    ss = st.session_state
+    Wrapped in a fragment so the elapsed-time and frame counter update
+    continuously without requiring a full page rerun on every tick.
+    """
     st.markdown(_RECORDING_CSS, unsafe_allow_html=True)
-    if ss.recording:
-        elapsed = 0.0
-        if ss.start_t is not None:
-            elapsed = max(0.0, time.time() - ss.start_t)
-        st.markdown(
-            f"<div class='syntonia-banner rec'>"
-            f"<span class='syntonia-rec-dot'></span>"
-            f"RECORDING · {elapsed:0.1f} s · "
-            f"{len(ss.samples)} frames"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        n = len(ss.samples)
-        if n > 0:
-            dur = ss.samples[-1].t - ss.samples[0].t if ss.samples else 0.0
-            text = (
-                f"IDLE · take captured ({n} frames · {dur:0.1f} s) — "
-                f"Detect to see nuances"
+
+    @st.fragment(run_every="300ms")
+    def _banner_tick():
+        ss = st.session_state
+        if ss.recording:
+            elapsed = 0.0
+            if ss.start_t is not None:
+                elapsed = max(0.0, time.time() - ss.start_t)
+            st.markdown(
+                f"<div class='syntonia-banner rec'>"
+                f"<span class='syntonia-rec-dot'></span>"
+                f"RECORDING · {elapsed:0.1f} s · "
+                f"{len(ss.samples)} frames"
+                f"</div>",
+                unsafe_allow_html=True,
             )
         else:
-            text = "IDLE · ready to record"
-        st.markdown(
-            f"<div class='syntonia-banner idle'>{text}</div>",
-            unsafe_allow_html=True,
-        )
+            n = len(ss.samples)
+            if n > 0:
+                dur = (ss.samples[-1].t - ss.samples[0].t) if ss.samples else 0.0
+                text = (
+                    f"IDLE · take captured ({n} frames · {dur:0.1f} s) — "
+                    f"Detect to see nuances"
+                )
+            else:
+                text = "IDLE · ready to record"
+            st.markdown(
+                f"<div class='syntonia-banner idle'>{text}</div>",
+                unsafe_allow_html=True,
+            )
+
+    _banner_tick()
+
+
+def _render_voice_command_poller() -> None:
+    """Dedicated 200 ms fragment that polls the voice listener regardless of
+    which tab is currently active. Without this, voice commands only got
+    consumed when the user was on the Live tab (because the live_tick
+    fragment was the only thing checking listener.consume_pending()).
+    """
+    @st.fragment(run_every="200ms")
+    def _voice_tick():
+        listener = get_voice_listener()
+        cmd = listener.consume_pending()
+        if not cmd:
+            return
+        _toggle_recording_via_command(cmd)
+        # Full app rerun so the recording banner, sidebar button label,
+        # and Live-tab webcam overlay all reflect the new state on the
+        # same voice command.
+        st.rerun()
+
+    _voice_tick()
 
 
 def main() -> None:
@@ -2524,6 +2547,9 @@ def main() -> None:
     # Top-of-page recording state banner, visible from every tab so the
     # user always knows whether their voice-triggered take is rolling.
     _render_recording_banner()
+
+    # Voice-command poller — runs regardless of active tab.
+    _render_voice_command_poller()
 
     tab_live, tab_insights, tab_mobile, tab_tech, tab_guide = st.tabs(
         ["📹 Live", "🎯 Insights", "📱 Mobile", "🔬 Technical", "❓ Guide"]
