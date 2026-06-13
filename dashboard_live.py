@@ -1897,6 +1897,71 @@ def render_guide_tab() -> None:
 # Sidebar
 # ─────────────────────────────────────────────────────────────────────────
 
+def _render_next_step_guidance(ss) -> None:
+    """State-aware 'do this next' hint at the top of the sidebar.
+    Walks the user through use case A (at-rest coaching) and use
+    case B (rehearsal against prior take) without making them read
+    the Guide tab first.
+    """
+    n_baselines = len(ss.signatures)
+    n_samples = len(ss.samples)
+    recording = ss.recording
+    baseline_selected = ss.active_baseline_key
+
+    if recording:
+        msg = "🔴  **Recording…** click **Stop ■** when done."
+        st.info(msg)
+        return
+
+    if n_baselines == 0 and n_samples == 0:
+        st.info(
+            "👋  **First time here?**\n\n"
+            "**Use case A · live coaching.** Record 30 s sitting calm and "
+            "neutral → **Enroll** as `at_rest_en`.\n\n"
+            "**Use case B · rehearsal.** Record your 30-s elevator pitch → "
+            "**Enroll** as `pitch_attempt_1`.\n\n"
+            "Either way: record your first take, give it a name, hit Enroll."
+        )
+        return
+
+    if n_baselines > 0 and n_samples == 0:
+        st.info(
+            "✓  You have enrolled baselines.\n\n"
+            "**Next:** pick one under **🎯 Compare against**, then "
+            "**Record ▶** a fresh take, then **🔍 Detect** to see the "
+            "ranked nuances vs. that baseline."
+        )
+        return
+
+    if n_samples > 0 and not baseline_selected:
+        # Take captured but no Detect yet.
+        if n_baselines == 0:
+            st.info(
+                "📥  Take captured ({n} samples). "
+                "**Next:** name it under **💾 Enroll new baseline** and "
+                "click **Enroll** so you can compare future takes against "
+                "it.".format(n=n_samples)
+            )
+        else:
+            st.info(
+                "📊  Take captured ({n} samples).\n\n"
+                "**Two options:**\n"
+                "1. **Detect** vs an existing baseline (pick one above + "
+                "🔍 Detect).\n"
+                "2. **Enroll** this take itself as a new baseline (give it "
+                "a name + 💾 Enroll).".format(n=n_samples)
+            )
+        return
+
+    if n_samples > 0 and baseline_selected:
+        st.success(
+            f"🎯  Active baseline: **{baseline_selected}**.\n\n"
+            f"Recorded take in buffer. **Click 🔍 Detect** to see the "
+            f"ranked nuances on the Mobile / Insights tabs."
+        )
+        return
+
+
 def render_sidebar() -> dict:
     ss = st.session_state
     recorder = get_audio_recorder()
@@ -1911,6 +1976,8 @@ def render_sidebar() -> dict:
     sigma_high = 6.0
 
     with st.sidebar:
+        _render_next_step_guidance(ss)
+
         st.header("👤  Avatar")
         if st.button(
             "📷  Snap from webcam",
@@ -1967,10 +2034,21 @@ def render_sidebar() -> dict:
         )
         st.header("🎬  Recording")
         c1, c2 = st.columns(2)
+        rec_help = (
+            "Start or stop a take.\n\n"
+            "• **Use case A — coaching.** Record 30 s sitting calm and "
+            "neutral, then Enroll as your at-rest baseline.\n"
+            "• **Use case B — rehearsal.** Record your 30-s elevator pitch "
+            "or keynote opener. Enroll it the first time, then Detect "
+            "against it on every subsequent attempt.\n\n"
+            "Recording captures face landmarks + audio; nothing leaves "
+            "this device."
+        )
         if c1.button(
             "Record ▶" if not ss.recording else "Stop ■",
             use_container_width=True,
             key="rec_toggle",
+            help=rec_help,
         ):
             now = time.time()
             if not ss.recording:
@@ -1989,7 +2067,17 @@ def render_sidebar() -> dict:
             # "Stop ■" / "Record ▶" on this same click instead of waiting
             # for the next user interaction.
             st.rerun()
-        if c2.button("Clear", use_container_width=True, key="clear_take"):
+        if c2.button(
+            "Clear",
+            use_container_width=True,
+            key="clear_take",
+            help=(
+                "Discard the current take's samples, transcript and frames. "
+                "Does NOT touch your enrolled baselines — those are saved "
+                "separately to signatures.json. Use before each new take "
+                "in either use case."
+            ),
+        ):
             ss.samples = []
             ss.start_t = None
             ss.event_log = None
@@ -2028,7 +2116,23 @@ def render_sidebar() -> dict:
                 "chair, new lighting)."
             ),
         )
-        if st.button("Enroll", use_container_width=True, key="enroll_baseline"):
+        if st.button(
+            "Enroll",
+            use_container_width=True,
+            key="enroll_baseline",
+            help=(
+                "Save the current take as a reference profile that future "
+                "takes can compare against.\n\n"
+                "• **Use case A — coaching.** Enroll your calm 30-s take "
+                "as `at_rest_en` (or `_es`, `_hi`, …). Pick it as Compare "
+                "Against before every coaching session.\n"
+                "• **Use case B — rehearsal.** Enroll attempt #1 as "
+                "`pitch_attempt_1`. Tomorrow record attempt #2, Compare "
+                "Against `pitch_attempt_1`, Detect — see what changed.\n\n"
+                "Each baseline is the median + spread of the take's "
+                "frames, stored locally."
+            ),
+        ):
             base = fit_baseline(ss.samples, std_floor=_LIVE_STD_FLOOR)
             if base is None:
                 st.error("Need more samples first.")
@@ -2058,6 +2162,17 @@ def render_sidebar() -> dict:
             "Detect events vs selected baseline",
             use_container_width=True,
             key="detect_btn",
+            help=(
+                "Compare the current take against the baseline selected "
+                "in Compare Against above. After it runs, the Mobile and "
+                "Insights tabs show the ranked NUANCES where the two "
+                "differ — coloured by category (real face change / head "
+                "movement / setup drift), with side-by-side trapezium "
+                "overlays, spider chart of all dimensions, and a timeline "
+                "of the dominant feature. Use case A: see where you "
+                "departed from rest. Use case B: see where today's "
+                "attempt differs from yesterday's enrolled version."
+            ),
         ):
             if baseline_choice == "— none —":
                 st.error("Pick a baseline first.")
