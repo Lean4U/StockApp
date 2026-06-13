@@ -592,9 +592,17 @@ def render_spider_chart(
     # Map σ → percent of breach threshold (6 σ = 100 %).
     # Cap to 200 % so a single extreme outlier doesn't eat the chart.
     pct_vals = [min(abs(z_map[f]) / 6.0 * 100.0, 200.0) for f in features]
-    # Spider axis labels: technical feature names rendered as BOLD UPPER
-    # words with spaces in place of underscores so they read naturally.
-    labels = [f.replace("_", " ").upper() for f in features]
+    # Spider axis labels: plain-English category names like 'LEFT SMILE',
+    # 'HEAD TURN', 'LIP SHIFT' — translated to the active output language
+    # via the spider.<feature> i18n keys, falling back to a generated
+    # uppercase version of the technical name when no translation exists.
+    spider_lang = st.session_state.get("out_lang", "en")
+    labels = [
+        t(f"spider.{f}", spider_lang)
+        if t(f"spider.{f}", spider_lang) != f"spider.{f}"
+        else f.replace("_", " ").upper()
+        for f in features
+    ]
 
     angles = np.linspace(0, 2 * np.pi, len(features), endpoint=False).tolist()
     angles += angles[:1]
@@ -1522,7 +1530,11 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     # Side label + severity ladder + severity word (per request:
     # matches the Insights tab's "RIGHT brow ▶ / 4-pip bar / NOTICEABLE"
     # descriptor block).
-    _, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+    _, _default_side = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+    _side_lang = st.session_state.get("out_lang", "en")
+    side_label = t(f"side_label.{r['feature']}", _side_lang)
+    if side_label == f"side_label.{r['feature']}":
+        side_label = _default_side
     severity = severity_word(r["peak_z"])
     bars_html = severity_bar_html(r["peak_z"], color)
     st.markdown(
@@ -1921,7 +1933,11 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             unsafe_allow_html=True,
         )
     with cols[3]:
-        glyph, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+        glyph, _default_side = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+        _side_lang2 = st.session_state.get("out_lang", "en")
+        side_label = t(f"side_label.{r['feature']}", _side_lang2)
+        if side_label == f"side_label.{r['feature']}":
+            side_label = _default_side
         severity = severity_word(r["peak_z"])
         bars_html = severity_bar_html(r["peak_z"], color)
         is_face = r["feature"] in _FACE_FEATURES
@@ -2646,9 +2662,37 @@ def _render_recording_banner() -> None:
     """
     st.markdown(_RECORDING_CSS, unsafe_allow_html=True)
 
-    @st.fragment(run_every="300ms")
+    @st.fragment(run_every="250ms")
     def _banner_tick():
         ss = st.session_state
+        # Voice-command flash: when the listener heard 'record' or 'stop'
+        # within the last ~1.8 s, override the normal banner with an
+        # amber-bordered HEARD-overlay. This is what guarantees the user
+        # sees confirmation in their main focus area (the page banner),
+        # rather than needing to track a toast in the top-right corner.
+        try:
+            listener = get_voice_listener()
+            voice_age = time.time() - listener.last_event_time
+            if (
+                listener.last_event_command
+                and listener.last_event_time > 0
+                and voice_age <= 1.8
+            ):
+                word = listener.last_event_command
+                key = "voice.heard_start" if word == "record" else "voice.heard_stop"
+                text = t(key, ss.get("out_lang", "en")).format(w=word)
+                st.markdown(
+                    f"<div class='syntonia-banner' style='"
+                    f"background:#fff7e6;color:#7a4a00;"
+                    f"border:2px solid #f0ad4e'>"
+                    f"<span style='font-size:1.15rem;margin-right:6px'>🎤</span>"
+                    f"{text}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                return
+        except Exception:
+            pass
         if ss.recording:
             elapsed = 0.0
             if ss.start_t is not None:

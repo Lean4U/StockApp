@@ -49,11 +49,12 @@ except Exception:  # pragma: no cover
 
 
 SAMPLE_RATE = 16000
-CHUNK_DURATION_S = 1.5
-POLL_INTERVAL_S = 0.4
-BUFFER_DURATION_S = 3.0
+CHUNK_DURATION_S = 1.0
+POLL_INTERVAL_S = 0.25
+BUFFER_DURATION_S = 2.5
 SILENCE_PEAK = 0.012
-COMMAND_COOLDOWN_S = 1.0
+COMMAND_COOLDOWN_S = 0.8
+HEARD_DISPLAY_S = 1.8
 
 
 START_KEYWORDS = {
@@ -102,6 +103,14 @@ class VoiceCommandListener:
         # Used by the dashboard to show a toast on every command detected.
         self._last_command: Optional[str] = None
         self._last_command_announce_time: float = 0.0
+
+    @property
+    def last_event_command(self) -> Optional[str]:
+        return self._last_command
+
+    @property
+    def last_event_time(self) -> float:
+        return self._last_command_announce_time
 
     def take_announcement(self) -> Optional[str]:
         """Return the most recently fired command exactly once, so the
