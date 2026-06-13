@@ -46,6 +46,7 @@ from face_trapezium import (
     fit_baseline,
 )
 from feature_glossary import category, explain
+from i18n import OUTPUT_LANGUAGES, has_full_translation, t
 
 SIGNATURE_FILE = Path("signatures.json")
 
@@ -144,14 +145,16 @@ FEATURE_GLYPH: Dict[str, tuple] = {
 
 
 def severity_word(peak_z: float) -> str:
-    """Plain-language severity label — no numbers."""
+    """Plain-language severity label, translated to the active output
+    language — no numbers."""
+    lang = st.session_state.get("out_lang", "en")
     if peak_z >= 12:
-        return "intense"
+        return t("severity.intense", lang)
     if peak_z >= 6:
-        return "marked"
+        return t("severity.marked", lang)
     if peak_z >= 3:
-        return "noticeable"
-    return "subtle"
+        return t("severity.noticeable", lang)
+    return t("severity.subtle", lang)
 
 
 def severity_bar_html(peak_z: float, color: str) -> str:
@@ -681,6 +684,7 @@ def init_state() -> None:
     ss.setdefault("active_baseline_key", None)
     ss.setdefault("selected_event_idx", 0)
     ss.setdefault("avatar_bgr", None)
+    ss.setdefault("out_lang", "en")
 
 
 def crop_to_square(img: np.ndarray, size: int = 128) -> np.ndarray:
@@ -1207,7 +1211,9 @@ def render_mobile_tab() -> None:
                 f"<div style='text-align:center;font-weight:bold;"
                 f"font-size:1rem;padding-top:6px;color:#0a0a0a;"
                 f"letter-spacing:1px'>"
-                f"NUANCE {ss.mobile_idx + 1} OF {total}"
+                f"{t('section.nuance', ss.get('out_lang', 'en'))} "
+                f"{ss.mobile_idx + 1} "
+                f"{t('section.of', ss.get('out_lang', 'en'))} {total}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -1241,7 +1247,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     fx = explain(r["feature"])
     cat = r["category"]
     color = CATEGORY_PALETTE[cat]
-    label = CATEGORY_LABEL[cat]
+    label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
     best = r["best_event"]
     peak_t = 0.5 * (best["start_t"] + best["end_t"])
 
@@ -1261,14 +1267,14 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     st.markdown(
         f"<div style='color:#1a1a1a;font-size:1.0rem;margin-top:10px;"
         f"line-height:1.45'>"
-        f"<b style='color:#0a0a0a'>What it measures.</b> {fx.physical}</div>",
+        f"<b style='color:#0a0a0a'>{t('field.what_measures', st.session_state.get('out_lang','en'))}</b> {fx.physical}</div>",
         unsafe_allow_html=True,
     )
     if fx.citation:
         st.markdown(
             f"<div style='color:#2c2c2c;font-size:0.92rem;margin-top:6px;"
             f"line-height:1.45'>"
-            f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
+            f"<b style='color:#0a0a0a'>{t('field.cited_science', st.session_state.get('out_lang','en'))}</b> {fx.citation}</div>",
             unsafe_allow_html=True,
         )
     if fx.science_summary:
@@ -1276,7 +1282,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             f"<div style='color:#1a1a1a;font-size:0.95rem;margin-top:4px;"
             f"line-height:1.45;padding:8px 12px;background:#f6f8fc;"
             f"border-left:3px solid #1a1a1a;border-radius:4px'>"
-            f"<b style='color:#0a0a0a'>In plain language.</b> "
+            f"<b style='color:#0a0a0a'>{t('field.plain_lang', st.session_state.get('out_lang','en'))}</b> "
             f"{fx.science_summary}</div>",
             unsafe_allow_html=True,
         )
@@ -1303,7 +1309,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
                 f"border-left:4px solid #1559b8;border-radius:4px;"
                 f"font-style:italic'>"
                 f"<span style='color:#1559b8;font-weight:bold;font-style:normal'>"
-                f"What you said.</span> “{spoken}”</div>",
+                f"{t('field.what_said', st.session_state.get('out_lang','en'))}</span> “{spoken}”</div>",
                 unsafe_allow_html=True,
             )
     st.markdown(
@@ -1348,12 +1354,13 @@ def _render_mobile_card(rank: int, r: dict) -> None:
 
     # Spider + line charts.
     baseline = _active_baseline()
+    lang = ss.get("out_lang", "en")
     if baseline is not None:
         st.markdown(
             "<div style='margin-top:28px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
-            "Where Your Face Moved</div>"
+            f"{t('section.where_moved', lang)}</div>"
             "<div style='text-align:center;color:#404040;font-size:0.9rem;"
             "font-style:italic;margin-top:4px'>"
             "each spoke is one geometric dimension; the green ring is your "
@@ -1366,7 +1373,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             "<div style='margin-top:22px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
-            "How It Changed Over Time · "
+            f"{t('section.over_time', lang)} · "
             + explain(r["feature"]).short
             + "</div>",
             unsafe_allow_html=True,
@@ -1490,6 +1497,7 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
     import base64
     b64 = base64.b64encode(buf.tobytes()).decode("ascii")
     src = f"data:image/png;base64,{b64}"
+    lang = st.session_state.get("out_lang", "en")
     baseline_tooltip = (
         "Your reference profile — what NOW is being compared against. "
         "Two patterns are common: "
@@ -1509,14 +1517,14 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         f"<div style='margin-top:8px;text-align:center'>"
         f"<div style='font-size:0.85rem;color:#0a0a0a;"
         f"letter-spacing:1.5px;font-weight:bold;margin-bottom:8px'>"
-        f"OVERLAY "
+        f"{t('label.overlay', lang)} "
         f"<span style='color:{baseline_ring};cursor:help;"
         f"border-bottom:1px dotted {baseline_ring}' "
-        f"title='{baseline_tooltip}'>● baseline</span> "
-        f"<span style='color:#0a0a0a'>vs</span> "
+        f"title='{baseline_tooltip}'>{t('label.baseline_vs', lang)}</span> "
+        f"<span style='color:#0a0a0a'>{t('label.vs', lang)}</span> "
         f"<span style='color:#d9534f;cursor:help;"
         f"border-bottom:1px dotted #d9534f' "
-        f"title='{now_tooltip}'>● now</span>"
+        f"title='{now_tooltip}'>{t('label.now_vs', lang)}</span>"
         f"&nbsp;&nbsp;<span style='color:{color}'>({skew_label})</span>"
         f"</div>"
         f"<img src='{src}' style='width:100%;height:auto;"
@@ -1564,7 +1572,7 @@ def _render_moment(feature: str, t: float) -> None:
     fx = explain(feature)
     cat = category(feature)
     color = CATEGORY_PALETTE[cat]
-    label = CATEGORY_LABEL[cat]
+    label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
 
     st.markdown(
         f"<div style='border:1px solid {color};border-radius:6px;"
@@ -1621,7 +1629,7 @@ def _render_inflection_row(rank: int, r: dict) -> None:
     fx = explain(r["feature"])
     cat = r["category"]
     color = CATEGORY_PALETTE[cat]
-    label = CATEGORY_LABEL[cat]
+    label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
     best = r["best_event"]
     peak_t = 0.5 * (best["start_t"] + best["end_t"])
     thumb = thumbnail_at_time(peak_t, ss.samples)
@@ -1654,14 +1662,14 @@ def _render_inflection_row(rank: int, r: dict) -> None:
         st.markdown(
             f"<div style='color:#1a1a1a;font-size:0.95rem;margin-top:4px;"
             f"line-height:1.4'>"
-            f"<b style='color:#0a0a0a'>What it measures.</b> {fx.physical}</div>",
+            f"<b style='color:#0a0a0a'>{t('field.what_measures', st.session_state.get('out_lang','en'))}</b> {fx.physical}</div>",
             unsafe_allow_html=True,
         )
         if fx.citation:
             st.markdown(
                 f"<div style='color:#2c2c2c;font-size:0.9rem;margin-top:3px;"
                 f"line-height:1.4'>"
-                f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
+                f"<b style='color:#0a0a0a'>{t('field.cited_science', st.session_state.get('out_lang','en'))}</b> {fx.citation}</div>",
                 unsafe_allow_html=True,
             )
         if fx.science_summary:
@@ -1669,7 +1677,7 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                 f"<div style='color:#1a1a1a;font-size:0.9rem;margin-top:3px;"
                 f"line-height:1.4;padding:6px 10px;background:#f6f8fc;"
                 f"border-left:3px solid #1a1a1a;border-radius:4px'>"
-                f"<b style='color:#0a0a0a'>In plain language.</b> "
+                f"<b style='color:#0a0a0a'>{t('field.plain_lang', st.session_state.get('out_lang','en'))}</b> "
                 f"{fx.science_summary}</div>",
                 unsafe_allow_html=True,
             )
@@ -1697,7 +1705,7 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                     f"border-left:3px solid #1559b8;border-radius:4px;"
                     f"font-style:italic'>"
                     f"<span style='color:#1559b8;font-weight:bold;font-style:normal'>"
-                    f"What you said.</span> “{spoken}”</div>",
+                    f"{t('field.what_said', st.session_state.get('out_lang','en'))}</span> “{spoken}”</div>",
                     unsafe_allow_html=True,
                 )
         st.markdown(
@@ -2004,18 +2012,29 @@ def render_sidebar() -> dict:
                     ss.avatar_bgr = None
                     st.rerun()
 
-        st.header("🌐  Language")
-        language_choice = st.selectbox(
-            "Spoken language",
-            options=list(_LANGUAGE_OPTIONS.keys()),
+        st.header("🗣  Insights language")
+        out_label = st.selectbox(
+            "Output language",
+            options=list(OUTPUT_LANGUAGES.keys()),
             index=0,
             help=(
-                "What language you'll be speaking. Locks the transcriber so "
-                "Spanish words don't get heard as English homophones, etc. "
-                "Leave on Auto-detect if you're not sure."
+                "The language the dashboard renders insights in — labels, "
+                "category chips, section headers, plain-language science "
+                "summaries. Independent of what you SPEAK; spoken language "
+                "is always auto-detected by Whisper in the background.\n\n"
+                "Translations are rolling out progressively. English and "
+                "Español are most complete; other choices show with a "
+                "(English fallback) note while their translations land."
             ),
         )
-        language_code = _LANGUAGE_OPTIONS[language_choice]
+        out_lang = OUTPUT_LANGUAGES[out_label]
+        if not has_full_translation(out_lang):
+            st.caption(
+                f"_{out_label}: translations in progress — falling back to "
+                f"English where keys aren't translated yet._"
+            )
+        # Spoken language for Whisper transcription stays on auto-detect.
+        language_code = None
 
         st.header("🎯  Baseline")
         names = list(ss.signatures.keys())
@@ -2241,6 +2260,7 @@ def render_sidebar() -> dict:
         "sigma_high": sigma_high,
         "run_live": run_live,
         "language_code": language_code,
+        "out_lang": out_lang,
     }
 
 
@@ -2252,6 +2272,9 @@ def main() -> None:
     st.set_page_config(page_title="SyntoniaPro — Live", layout="wide")
     init_state()
     sidebar = render_sidebar()
+    # Stash the chosen output language so helper renderers can call t(...)
+    # without threading the value through every signature.
+    st.session_state.out_lang = sidebar["out_lang"]
 
     st.title("SyntoniaPro — Live")
     st.caption(
