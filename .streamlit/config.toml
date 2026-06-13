@@ -4,10 +4,10 @@
 
 [browser]
 gatherUsageStats = false
-serverAddress = "127.0.0.1"
+serverAddress = "0.0.0.0"
 
 [server]
-address = "127.0.0.1"
+address = "0.0.0.0"
 headless = true
 enableCORS = false
 enableXsrfProtection = true
