@@ -216,10 +216,17 @@ def get_voice_listener() -> VoiceCommandListener:
 def _toggle_recording_via_command(cmd: str) -> None:
     """Start or stop a take in response to a voice command. Mirrors the
     Record / Stop button handlers so the same state changes happen
-    regardless of whether the user clicked or spoke."""
+    regardless of whether the user clicked or spoke.
+
+    The listener is intentionally NOT suspended during recording so the
+    user can also say 'stop' to end the take. macOS Core Audio allows
+    sounddevice to keep its short capture chunks running alongside the
+    AudioRecorder's continuous InputStream; if a particular platform
+    won't share the device, the listener simply logs an error in its
+    diagnostic strip and the user falls back to clicking Stop.
+    """
     ss = st.session_state
     recorder = get_audio_recorder()
-    listener = get_voice_listener()
     now = time.time()
     if cmd == "record" and not ss.recording:
         if not ss.samples:
@@ -227,14 +234,10 @@ def _toggle_recording_via_command(cmd: str) -> None:
         ss.recording = True
         if recorder.available:
             recorder.start(now)
-        # Free the mic for the take.
-        listener.suspend()
     elif cmd == "stop" and ss.recording:
         ss.recording = False
         if recorder.available and recorder.recording:
             recorder.stop()
-        # Resume listening only if the user still wants voice control.
-        listener.resume()
 
 
 # ─────────────────────────────────────────────────────────────────────────
