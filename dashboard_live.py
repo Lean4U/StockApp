@@ -2086,6 +2086,7 @@ def render_sidebar() -> dict:
             ss.active_baseline_key = None
             if recorder.available:
                 recorder.clear()
+            st.rerun()
 
         st.caption(f"Samples collected: **{len(ss.samples)}**")
         if ss.samples:
@@ -2146,6 +2147,10 @@ def render_sidebar() -> dict:
                     f"n={base.n_samples}, "
                     f"duration={base.duration_s:.2f}s"
                 )
+                # Re-run immediately so the new baseline shows up in the
+                # Compare-against selectbox and the Next-step guidance
+                # panel reflects the new state on this same click.
+                st.rerun()
 
         st.header("🔍  Detect")
         do_transcribe = st.checkbox(
@@ -2220,6 +2225,10 @@ def render_sidebar() -> dict:
                                 wav_path.unlink()
                             except Exception:
                                 pass
+                # Re-run immediately so the Mobile / Insights tabs and the
+                # sidebar's Next-step guidance reflect the new event_log
+                # on this same click.
+                st.rerun()
 
         run_live = st.toggle("Run live", value=True)
 
