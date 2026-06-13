@@ -894,69 +894,62 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     best = r["best_event"]
     peak_t = 0.5 * (best["start_t"] + best["end_t"])
 
-    # Section 1: tight face-crop close-up at full screen width.
-    face_crop = crop_to_face_at_time(peak_t, ss.samples)
-    border_w = min(6, max(2, int(r["peak_z"] // 3)))
-    close_up_html = _img_as_inline_html(
-        face_crop, border_color=color, border_w=border_w, radius=16
-    )
-    st.markdown(close_up_html, unsafe_allow_html=True)
+    # Title row.
     st.markdown(
-        f"<div style='text-align:center;color:#9aa0a6;font-size:0.78rem;"
-        f"margin-top:4px'>close-up · t ≈ {peak_t:.2f} s</div>",
-        unsafe_allow_html=True,
-    )
-
-    # Section 2: title + meaning + science + question + transcript + timestamps.
-    st.markdown(
-        f"<div style='margin-top:14px;display:flex;align-items:center;"
-        f"justify-content:space-between'>"
-        f"<div style='font-size:1.05rem;font-weight:bold'>"
+        f"<div style='display:flex;align-items:center;"
+        f"justify-content:space-between;color:#ffffff'>"
+        f"<div style='font-size:1.1rem;font-weight:bold;color:#ffffff'>"
         f"#{rank} · {fx.short}</div>"
-        f"<span style='background:{color};color:white;padding:2px 10px;"
-        f"border-radius:4px;font-size:0.75rem;font-weight:bold'>{label}</span>"
+        f"<span style='background:{color};color:white;padding:3px 10px;"
+        f"border-radius:4px;font-size:0.78rem;font-weight:bold'>{label}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
+    # Body text — bright enough to be readable against dark theme.
     st.markdown(
-        f"<div style='color:#c8d0db;font-size:0.95rem;margin-top:8px'>"
-        f"<b>What it measures.</b> {fx.physical}</div>",
+        f"<div style='color:#f0f3f8;font-size:1.0rem;margin-top:10px;"
+        f"line-height:1.45'>"
+        f"<b style='color:#ffffff'>What it measures.</b> {fx.physical}</div>",
         unsafe_allow_html=True,
     )
     if fx.citation:
         st.markdown(
-            f"<div style='color:#9aa0a6;font-size:0.88rem;margin-top:4px'>"
-            f"<b>Cited science.</b> {fx.citation}</div>",
+            f"<div style='color:#d8dde6;font-size:0.92rem;margin-top:6px;"
+            f"line-height:1.45'>"
+            f"<b style='color:#ffffff'>Cited science.</b> {fx.citation}</div>",
             unsafe_allow_html=True,
         )
     if fx.socratic:
         st.markdown(
-            f"<div style='color:{color};font-size:0.95rem;font-style:italic;"
-            f"margin-top:6px'>{fx.socratic}</div>",
+            f"<div style='color:{color};font-size:1.0rem;font-style:italic;"
+            f"margin-top:10px;font-weight:600'>{fx.socratic}</div>",
             unsafe_allow_html=True,
         )
     if ss.transcript:
         spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
         if spoken:
             st.markdown(
-                f"<div style='color:#dde6f1;font-size:0.9rem;margin-top:8px;"
-                f"padding:8px 12px;background:#101820;"
-                f"border-left:3px solid #4dabf7;border-radius:4px;"
-                f"font-style:italic'>What you said: “{spoken}”</div>",
+                f"<div style='color:#f3f6fb;font-size:0.95rem;margin-top:10px;"
+                f"padding:10px 14px;background:#0c1320;"
+                f"border-left:4px solid #4dabf7;border-radius:4px;"
+                f"font-style:italic'>"
+                f"<span style='color:#7fb8ff;font-weight:bold;font-style:normal'>"
+                f"What you said.</span> “{spoken}”</div>",
                 unsafe_allow_html=True,
             )
     st.markdown(
-        f"<div style='color:#6c757d;font-size:0.75rem;margin-top:8px'>"
+        f"<div style='color:#c8d0db;font-size:0.82rem;margin-top:10px'>"
         f"first at {r['earliest_start']:.2f} s · "
         f"latest at {r['latest_end']:.2f} s · "
         f"{r['n_events']} window(s)</div>",
         unsafe_allow_html=True,
     )
 
-    # Section 3: twin baseline → now panels (face-cropped if face feature).
+    # Section 3 (was Section 3 of three; first close-up was dropped).
     st.markdown(
-        "<div style='margin-top:22px;font-size:0.85rem;color:#9aa0a6;"
-        "letter-spacing:1.5px;text-transform:uppercase;text-align:center'>"
+        "<div style='margin-top:24px;font-size:0.95rem;color:#e8eef5;"
+        "letter-spacing:2px;text-transform:uppercase;text-align:center;"
+        "font-weight:bold'>"
         "Baseline vs. now</div>",
         unsafe_allow_html=True,
     )
@@ -992,22 +985,20 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
     border_w = min(6, max(2, int(r["peak_z"] // 3)))
 
     def panel(bgr, ring, ring_w, label, label_color, dim):
+        # `dim` only changes the RING colour + the glow — the image itself
+        # always renders at full crispness so BASELINE and NOW are visually
+        # the same quality. Distinguishing the two is the ring's job.
         if bgr is not None:
             ok, buf = cv2.imencode(".png", bgr)
             if ok:
                 import base64
                 b64 = base64.b64encode(buf.tobytes()).decode("ascii")
                 src = f"data:image/png;base64,{b64}"
-                filter_style = (
-                    "opacity:0.7;filter:saturate(0.55);" if dim else ""
-                )
-                glow = (
-                    f"box-shadow:0 0 10px {ring};" if not dim else ""
-                )
+                glow = "" if dim else f"box-shadow:0 0 14px {ring};"
                 img_html = (
                     f"<img src='{src}' style='width:100%;height:auto;"
                     f"border-radius:14px;object-fit:cover;"
-                    f"border:{ring_w}px solid {ring};{filter_style}{glow}'/>"
+                    f"border:{ring_w}px solid {ring};{glow}'/>"
                 )
             else:
                 img_html = "<div>👤</div>"
@@ -1015,22 +1006,21 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
             img_html = (
                 f"<div style='aspect-ratio:1/1;border-radius:14px;"
                 f"border:{ring_w}px solid {ring};display:flex;"
-                f"align-items:center;justify-content:center;font-size:48px;"
-                f"background:#0e1117;{'opacity:0.7;' if dim else ''}'>"
-                f"👤</div>"
+                f"align-items:center;justify-content:center;font-size:56px;"
+                f"background:#0e1117'>👤</div>"
             )
         return (
             f"<div style='flex:1;text-align:center'>"
             f"{img_html}"
-            f"<div style='font-size:0.75rem;color:{label_color};"
-            f"margin-top:6px;letter-spacing:1.5px;font-weight:bold'>"
+            f"<div style='font-size:0.82rem;color:{label_color};"
+            f"margin-top:8px;letter-spacing:1.5px;font-weight:bold'>"
             f"{label}</div></div>"
         )
 
     return (
         f"<div style='display:flex;gap:16px;align-items:center;"
         f"max-width:100%;margin:0 auto'>"
-        f"{panel(baseline_face, baseline_ring, 4, 'BASELINE', '#9aa0a6', dim=True)}"
+        f"{panel(baseline_face, baseline_ring, 4, 'BASELINE', baseline_ring, dim=True)}"
         f"<div style='color:{color};font-size:2.2rem;font-weight:bold;"
         f"line-height:1'>→</div>"
         f"{panel(now_face, color, border_w + 2, 'NOW', color, dim=False)}"
@@ -1155,26 +1145,29 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             st.caption("(no close-up frame captured for this moment)")
     with cols[2]:
         st.markdown(
-            f"**{fx.short}** &nbsp;"
+            f"<span style='color:#ffffff;font-weight:bold'>{fx.short}</span>"
+            f" &nbsp;"
             f"<span style='background:{color};color:white;padding:1px 8px;"
             f"border-radius:4px;font-size:0.75rem'>{label}</span>",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"<div style='color:#c8d0db;font-size:0.92rem;margin-top:4px'>"
-            f"<b>What it measures.</b> {fx.physical}</div>",
+            f"<div style='color:#f0f3f8;font-size:0.95rem;margin-top:4px;"
+            f"line-height:1.4'>"
+            f"<b style='color:#ffffff'>What it measures.</b> {fx.physical}</div>",
             unsafe_allow_html=True,
         )
         if fx.citation:
             st.markdown(
-                f"<div style='color:#9aa0a6;font-size:0.88rem;margin-top:3px'>"
-                f"<b>Cited science.</b> {fx.citation}</div>",
+                f"<div style='color:#d8dde6;font-size:0.9rem;margin-top:3px;"
+                f"line-height:1.4'>"
+                f"<b style='color:#ffffff'>Cited science.</b> {fx.citation}</div>",
                 unsafe_allow_html=True,
             )
         if fx.socratic:
             st.markdown(
-                f"<div style='color:{color};font-size:0.92rem;font-style:italic;"
-                f"margin-top:6px'>"
+                f"<div style='color:{color};font-size:0.95rem;font-style:italic;"
+                f"margin-top:6px;font-weight:600'>"
                 f"{fx.socratic}</div>",
                 unsafe_allow_html=True,
             )
@@ -1182,15 +1175,16 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
             if spoken:
                 st.markdown(
-                    f"<div style='color:#dde6f1;font-size:0.88rem;margin-top:6px;"
-                    f"padding:6px 10px;background:#101820;"
+                    f"<div style='color:#f3f6fb;font-size:0.9rem;margin-top:6px;"
+                    f"padding:6px 10px;background:#0c1320;"
                     f"border-left:3px solid #4dabf7;border-radius:4px;"
                     f"font-style:italic'>"
-                    f"What you said: “{spoken}”</div>",
+                    f"<span style='color:#7fb8ff;font-weight:bold;font-style:normal'>"
+                    f"What you said.</span> “{spoken}”</div>",
                     unsafe_allow_html=True,
                 )
         st.markdown(
-            f"<div style='color:#6c757d;font-size:0.75rem;margin-top:6px'>"
+            f"<div style='color:#c8d0db;font-size:0.78rem;margin-top:6px'>"
             f"first at {r['earliest_start']:.2f}s · "
             f"latest at {r['latest_end']:.2f}s · "
             f"{r['n_events']} window(s)</div>",
@@ -1354,62 +1348,41 @@ def render_guide_tab() -> None:
 def render_sidebar() -> dict:
     ss = st.session_state
     recorder = get_audio_recorder()
-    with st.sidebar:
-        st.header("📷  Camera")
-        camera_idx = st.number_input(
-            "Camera index",
-            0,
-            4,
-            0,
-            step=1,
-            help="0 is the default webcam. Try 1 / 2 if you have multiple.",
-        )
 
+    # Defaults that used to be exposed in the sidebar. The cross-language
+    # trial confirmed these are the right values across cases; surfacing
+    # them as knobs only added cognitive load.
+    camera_idx = 0           # default webcam
+    adapt_on = True          # always-on adaptive baseline
+    adapt_window_s = 5.0     # 5 s of fresh sit-still re-calibrates
+    sigma_low = 3.0
+    sigma_high = 6.0
+
+    with st.sidebar:
         st.header("👤  Avatar")
-        st.caption(
-            "Optional. Replaces the neutral silhouette next to each ranked "
-            "inflection. Stays local — never uploaded anywhere."
-        )
-        uploaded = st.file_uploader(
-            "Upload a headshot (PNG / JPG)",
-            type=["png", "jpg", "jpeg"],
-            label_visibility="collapsed",
-        )
-        if uploaded is not None:
-            data = uploaded.read()
-            arr = np.frombuffer(data, dtype=np.uint8)
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if img is not None:
-                ss.avatar_bgr = crop_to_square(img)
-                st.success("Avatar set.")
-        avatar_cols = st.columns(2)
-        with avatar_cols[0]:
-            if st.button(
-                "📷 Snap from webcam",
-                use_container_width=True,
-                help="Grab the current webcam frame and use it as your avatar.",
-            ):
-                snap_cap = get_camera(int(camera_idx))
-                ok, frame = snap_cap.read()
-                if ok:
-                    ss.avatar_bgr = crop_to_square(frame)
-                    st.success("Avatar set from webcam.")
-                else:
-                    st.error("Could not read from the webcam.")
-        with avatar_cols[1]:
-            if st.button(
-                "Clear avatar",
-                use_container_width=True,
-                disabled=ss.avatar_bgr is None,
-            ):
-                ss.avatar_bgr = None
-                st.rerun()
+        if st.button(
+            "📷  Snap from webcam",
+            use_container_width=True,
+            help="Grab the current webcam frame and use it as your avatar.",
+        ):
+            snap_cap = get_camera(int(camera_idx))
+            ok, frame = snap_cap.read()
+            if ok:
+                ss.avatar_bgr = crop_to_square(frame)
+                st.success("Avatar set from webcam.")
+            else:
+                st.error("Could not read from the webcam.")
         if ss.avatar_bgr is not None:
-            st.image(
-                cv2.cvtColor(ss.avatar_bgr, cv2.COLOR_BGR2RGB),
-                width=96,
-                caption="Current avatar",
-            )
+            cols_av = st.columns([1, 1])
+            with cols_av[0]:
+                st.image(
+                    cv2.cvtColor(ss.avatar_bgr, cv2.COLOR_BGR2RGB),
+                    width=88,
+                )
+            with cols_av[1]:
+                if st.button("Clear", use_container_width=True):
+                    ss.avatar_bgr = None
+                    st.rerun()
 
         st.header("🎯  Baseline")
         names = list(ss.signatures.keys())
@@ -1418,22 +1391,6 @@ def render_sidebar() -> dict:
             options=["— none —"] + names,
             index=0,
         )
-        adapt_on = st.checkbox("Adaptive baseline", value=True)
-        adapt_window_s = st.slider(
-            "Adapt-from window (s)",
-            2.0,
-            15.0,
-            5.0,
-            0.5,
-            disabled=not adapt_on,
-        )
-
-        # Optimal σ thresholds are hard-coded — the trial sequence
-        # (brow / smile / head turn) confirmed 3.0 σ-low and 6.0 σ-high
-        # are the right defaults across subjects and languages.
-        sigma_low = 3.0
-        sigma_high = 6.0
-
         st.header("🎬  Recording")
         c1, c2 = st.columns(2)
         if c1.button(
