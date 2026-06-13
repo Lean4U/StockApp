@@ -86,6 +86,33 @@ class VoiceCommandListener:
         self._last_command_time: float = 0.0
         self._model = None
         self._enabled = False
+        # Diagnostics surfaced to the sidebar.
+        self._last_error: str = ""
+        self._chunks_processed: int = 0
+        self._commands_detected: int = 0
+        self._model_loaded: bool = False
+        self._last_chunk_peak: float = 0.0
+
+    @property
+    def last_error(self) -> str:
+        with self._lock:
+            return self._last_error
+
+    @property
+    def chunks_processed(self) -> int:
+        return self._chunks_processed
+
+    @property
+    def commands_detected(self) -> int:
+        return self._commands_detected
+
+    @property
+    def model_loaded(self) -> bool:
+        return self._model_loaded
+
+    @property
+    def last_chunk_peak(self) -> float:
+        return self._last_chunk_peak
 
     @property
     def available(self) -> bool:
@@ -153,16 +180,32 @@ class VoiceCommandListener:
             return True
         try:
             from faster_whisper import WhisperModel  # type: ignore
-            self._model = WhisperModel(
+            # Try the same path layout audio_capture.transcribe uses; that
+            # works after scripts/fetch_models.py has run.
+            tried = []
+            for cand in (
                 "models/whisper-small",
-                device="cpu",
-                compute_type="int8",
-                local_files_only=True,
+                "Systran/faster-whisper-small",  # fall back to HF id
+            ):
+                try:
+                    self._model = WhisperModel(
+                        cand,
+                        device="cpu",
+                        compute_type="int8",
+                        local_files_only=(cand.startswith("models/")),
+                    )
+                    self._model_loaded = True
+                    return True
+                except Exception as inner:
+                    tried.append(f"{cand}: {inner}")
+                    continue
+            raise RuntimeError(
+                "Could not load Whisper for voice commands: "
+                + " | ".join(tried)
             )
-            return True
         except Exception as e:
             with self._lock:
-                self._last_transcript = f"(model load failed: {e})"
+                self._last_error = f"model load failed: {e}"
             return False
 
     def _loop(self) -> None:
@@ -172,7 +215,6 @@ class VoiceCommandListener:
         chunk_samples = int(SAMPLE_RATE * CHUNK_DURATION_S)
         while self._active:
             try:
-                # Record a short chunk on the default input device.
                 audio = sd.rec(
                     chunk_samples,
                     samplerate=SAMPLE_RATE,
@@ -183,40 +225,12 @@ class VoiceCommandListener:
                 if not self._active:
                     break
                 wav = audio.flatten()
-                if float(np.max(np.abs(wav))) < SILENCE_PEAK:
+                peak = float(np.max(np.abs(wav)))
+                self._last_chunk_peak = peak
+                self._chunks_processed += 1
+                if peak < SILENCE_PEAK:
                     continue
-                # Write to temp wav, transcribe, delete.
-                fd, path = tempfile.mkstemp(prefix="cmd_", suffix=".wav")
-                os.close(fd)
-                try:
-                    clipped = np.clip(wav, -1.0, 1.0)
-                    pcm = (clipped * 32767).astype(np.int16)
-                    with wave.open(path, "wb") as w:
-                        w.setnchannels(1)
-                        w.setsampwidth(2)
-                        w.setframerate(SAMPLE_RATE)
-                        w.writeframes(pcm.tobytes())
-                    segments, _ = self._model.transcribe(
-                        path,
-                        vad_filter=True,
-                    )
-                    text = " ".join(seg.text for seg in segments).strip().lower()
-                finally:
-                    try:
-                        Path(path).unlink()
-                    except Exception:
-                        pass
-                if not text:
-                    continue
-                with self._lock:
-                    self._last_transcript = text
-                # Tokenise loosely and check against keyword sets.
-                tokens = {tok.strip(".,!?;:") for tok in text.split()}
-                cmd: Optional[str] = None
-                if tokens & STOP_KEYWORDS:
-                    cmd = "stop"
-                elif tokens & START_KEYWORDS:
-                    cmd = "record"
+                cmd = self._classify(wav)
                 if cmd is None:
                     continue
                 now = time.time()
@@ -224,8 +238,70 @@ class VoiceCommandListener:
                     continue
                 with self._lock:
                     self._pending = cmd
+                self._commands_detected += 1
                 self._last_command_time = now
             except Exception as e:
                 with self._lock:
-                    self._last_transcript = f"(error: {e})"
+                    self._last_error = f"loop error: {e}"
                 time.sleep(0.4)
+
+    def _classify(self, wav: np.ndarray) -> Optional[str]:
+        """Transcribe a single audio chunk, update last_transcript, return
+        the matched command or None. Shared by the background loop and
+        the explicit 'Test mic' button.
+        """
+        fd, path = tempfile.mkstemp(prefix="cmd_", suffix=".wav")
+        os.close(fd)
+        try:
+            clipped = np.clip(wav, -1.0, 1.0)
+            pcm = (clipped * 32767).astype(np.int16)
+            with wave.open(path, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(SAMPLE_RATE)
+                w.writeframes(pcm.tobytes())
+            segments, _ = self._model.transcribe(path, vad_filter=True)
+            text = " ".join(seg.text for seg in segments).strip().lower()
+        finally:
+            try:
+                Path(path).unlink()
+            except Exception:
+                pass
+        with self._lock:
+            self._last_transcript = text
+        if not text:
+            return None
+        tokens = {tok.strip(".,!?;:¡¿") for tok in text.split()}
+        if tokens & STOP_KEYWORDS:
+            return "stop"
+        if tokens & START_KEYWORDS:
+            return "record"
+        return None
+
+    def test_one_shot(self) -> Optional[str]:
+        """Synchronous one-shot test: capture one chunk, transcribe, return
+        the matched command (or None). Used by the sidebar diagnostic
+        button. Loads the model if not yet loaded.
+        """
+        if not _HAS_SOUND:
+            with self._lock:
+                self._last_error = "sounddevice not installed"
+            return None
+        if not self._ensure_model():
+            return None
+        chunk_samples = int(SAMPLE_RATE * CHUNK_DURATION_S)
+        try:
+            audio = sd.rec(
+                chunk_samples,
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+            )
+            sd.wait()
+            wav = audio.flatten()
+            self._last_chunk_peak = float(np.max(np.abs(wav)))
+            return self._classify(wav)
+        except Exception as e:
+            with self._lock:
+                self._last_error = f"capture error: {e}"
+            return None

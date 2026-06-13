@@ -2103,22 +2103,71 @@ def render_sidebar() -> dict:
                     "clicking the Record button — the take you save is "
                     "less contaminated by the act of starting it.\n\n"
                     "Detection uses the same local Whisper-small model — "
-                    "no cloud. Listens in 1.5-s chunks while idle; pauses "
-                    "automatically while a take is being recorded so it "
-                    "doesn't fight for the microphone."
+                    "no cloud."
                 ),
             )
             if voice_on and not listener.enabled:
                 listener.enable()
             elif not voice_on and listener.enabled:
                 listener.disable()
+
+            # Diagnostic strip — surfaces what the listener is actually doing.
             if listener.enabled:
+                model_status = (
+                    "✅ model loaded" if listener.model_loaded
+                    else "⏳ model loading…"
+                )
                 heard = listener.last_transcript
+                err = listener.last_error
+                st.caption(
+                    f"{model_status}  ·  "
+                    f"chunks: {listener.chunks_processed}  ·  "
+                    f"cmds: {listener.commands_detected}  ·  "
+                    f"mic peak: {listener.last_chunk_peak:.3f}"
+                )
                 if heard:
                     st.caption(f"🎤 heard: _{heard}_")
                 else:
                     st.caption(
-                        "🎤 listening… (loud enough for VAD, 1.5 s chunks)"
+                        "🎤 listening… (say something to see what it hears)"
+                    )
+                if err:
+                    st.error(f"⚠ {err}")
+
+            # One-shot test button — captures one 1.5-s chunk synchronously
+            # and shows what was heard + what command (if any) matched.
+            if st.button(
+                "🧪 Test mic (1.5 s)",
+                use_container_width=True,
+                key="test_voice",
+                help=(
+                    "Records 1.5 s right now, transcribes locally, and "
+                    "tells you what the listener thinks you said. Use this "
+                    "to verify the mic + model + keyword match all work "
+                    "before relying on the background listener."
+                ),
+            ):
+                with st.spinner("Listening…"):
+                    cmd = listener.test_one_shot()
+                heard = listener.last_transcript
+                err = listener.last_error
+                if err:
+                    st.error(f"⚠ {err}")
+                elif heard:
+                    if cmd:
+                        st.success(
+                            f"✅ heard '{heard}' → matched **{cmd}**"
+                        )
+                    else:
+                        st.info(
+                            f"heard '{heard}' — no keyword match. "
+                            f"Try 'record' or 'stop'."
+                        )
+                else:
+                    st.warning(
+                        "Nothing heard. Check macOS Privacy & Security → "
+                        "Microphone → make sure Terminal (or your Python) "
+                        "is allowed."
                     )
         else:
             st.caption(
