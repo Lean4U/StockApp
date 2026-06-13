@@ -209,33 +209,111 @@ def draw_trapezium(img: np.ndarray, sample: TrapeziumSample, recording: bool) ->
 
 def thumbnail_capture(frame: np.ndarray, sample_idx: int, every: int = 3) -> None:
     """Stash a BGR frame every ``every`` samples (~0.3 s at 10 fps).
-    Higher-resolution than v1 so the Insights tab close-ups aren't blurry.
+    Stored as a (frame, scale_to_source) tuple so face-crop helpers can
+    translate landmark coordinates from the source frame into the
+    downsampled thumbnail. Target width chosen to keep the cropped
+    face-region readable at full mobile-tab width.
     """
     if sample_idx % every != 0:
         return
     h, w = frame.shape[:2]
-    target_w = 540
+    target_w = 960
     if w > target_w:
+        scale = target_w / w
         thumb = cv2.resize(
-            frame, (target_w, int(h * target_w / w)), interpolation=cv2.INTER_AREA
+            frame, (target_w, int(h * scale)), interpolation=cv2.INTER_AREA
         )
     else:
         thumb = frame.copy()
-    st.session_state.frame_thumbnails[sample_idx] = thumb
+        scale = 1.0
+    st.session_state.frame_thumbnails[sample_idx] = (thumb, scale)
     if len(st.session_state.frame_thumbnails) > 400:
         st.session_state.frame_thumbnails.popitem(last=False)
 
 
-def thumbnail_at_time(
-    t: float, samples: List[TrapeziumSample]
-) -> Optional[np.ndarray]:
+def _nearest_thumb_record(t: float, samples: List[TrapeziumSample]):
+    """Return (sample_idx, (thumb, scale)) closest to time ``t``."""
     if not samples or not st.session_state.frame_thumbnails:
         return None
     sample_times = np.array([s.t for s in samples])
     idx = int(np.argmin(np.abs(sample_times - t)))
     keys = np.array(list(st.session_state.frame_thumbnails.keys()))
     nearest = int(keys[np.argmin(np.abs(keys - idx))])
-    return st.session_state.frame_thumbnails[nearest]
+    return nearest, st.session_state.frame_thumbnails[nearest]
+
+
+def thumbnail_at_time(
+    t: float, samples: List[TrapeziumSample]
+) -> Optional[np.ndarray]:
+    rec = _nearest_thumb_record(t, samples)
+    if rec is None:
+        return None
+    payload = rec[1]
+    # Backward compatibility: older entries may be bare ndarrays.
+    if isinstance(payload, tuple):
+        return payload[0]
+    return payload
+
+
+def _face_crop_box(
+    sample: TrapeziumSample, scale: float, thumb_shape: tuple
+) -> Optional[tuple]:
+    """Compute a generous face-region crop box in thumbnail coordinates.
+
+    Uses the six trapezium / brow landmarks as the geometric anchor and
+    pads up for hair, down for chin / neck, sides for ears so the
+    resulting headshot reads as a portrait crop with no room background.
+    """
+    th, tw = thumb_shape[:2]
+    pts = [
+        sample.left_eye[:2],
+        sample.right_eye[:2],
+        sample.left_mouth[:2],
+        sample.right_mouth[:2],
+        sample.left_brow[:2],
+        sample.right_brow[:2],
+    ]
+    xs = [p[0] * scale for p in pts]
+    ys = [p[1] * scale for p in pts]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    w = x_max - x_min
+    h = y_max - y_min
+    if w <= 0 or h <= 0:
+        return None
+    # Padding: side and head-top wide enough for hair / shoulders.
+    pad_x = w * 0.65
+    pad_y_top = h * 1.1
+    pad_y_bot = h * 0.9
+    left = int(max(0, x_min - pad_x))
+    top = int(max(0, y_min - pad_y_top))
+    right = int(min(tw, x_max + pad_x))
+    bottom = int(min(th, y_max + pad_y_bot))
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right, bottom
+
+
+def crop_to_face_at_time(
+    t: float, samples: List[TrapeziumSample]
+) -> Optional[np.ndarray]:
+    """Return a tight face-crop of the thumbnail captured closest to ``t``."""
+    rec = _nearest_thumb_record(t, samples)
+    if rec is None:
+        return None
+    sample_idx, payload = rec
+    if isinstance(payload, tuple):
+        thumb, scale = payload
+    else:
+        thumb, scale = payload, 1.0
+    if sample_idx >= len(samples):
+        return thumb
+    sample = samples[sample_idx]
+    box = _face_crop_box(sample, scale, thumb.shape)
+    if box is None:
+        return thumb
+    left, top, right, bottom = box
+    return thumb[top:bottom, left:right]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -302,7 +380,31 @@ def baseline_thumbnail() -> Optional[np.ndarray]:
     if not thumbs:
         return None
     first_key = next(iter(thumbs))
-    return thumbs[first_key]
+    payload = thumbs[first_key]
+    if isinstance(payload, tuple):
+        return payload[0]
+    return payload
+
+
+def baseline_face_crop() -> Optional[np.ndarray]:
+    """Same idea as baseline_thumbnail(), but cropped tight to the face."""
+    thumbs = st.session_state.frame_thumbnails
+    samples = st.session_state.samples
+    if not thumbs or not samples:
+        return baseline_thumbnail()
+    first_key = next(iter(thumbs))
+    payload = thumbs[first_key]
+    if isinstance(payload, tuple):
+        thumb, scale = payload
+    else:
+        thumb, scale = payload, 1.0
+    if first_key >= len(samples):
+        return thumb
+    box = _face_crop_box(samples[first_key], scale, thumb.shape)
+    if box is None:
+        return thumb
+    left, top, right, bottom = box
+    return thumb[top:bottom, left:right]
 
 
 def twin_avatar_block_html(
@@ -674,6 +776,213 @@ def render_live_tab(
 # ─────────────────────────────────────────────────────────────────────────
 # Insights tab — narrative + interactive timeline + ranked unique cards
 # ─────────────────────────────────────────────────────────────────────────
+
+def _img_as_inline_html(
+    bgr: Optional[np.ndarray],
+    border_color: Optional[str] = None,
+    border_w: int = 0,
+    radius: int = 14,
+) -> str:
+    """Encode a BGR array as an inline base64 PNG <img> at full container
+    width. Used by the Mobile tab so the cropped headshot fills the screen.
+    """
+    if bgr is None:
+        return ""
+    ok, buf = cv2.imencode(".png", bgr)
+    if not ok:
+        return ""
+    import base64
+    b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+    border_style = (
+        f"border:{border_w}px solid {border_color};" if border_color else ""
+    )
+    return (
+        f"<img src='data:image/png;base64,{b64}' "
+        f"style='width:100%;height:auto;border-radius:{radius}px;"
+        f"{border_style}display:block'/>"
+    )
+
+
+def render_mobile_tab() -> None:
+    """iPhone 14 Pro–oriented vertical inflection feed.
+
+    Each inflection is a single column card:
+       1) Tight face-crop close-up at full screen width.
+       2) Title + plain-language meaning + cited science + Socratic question
+          + (transcript) + timestamps.
+       3) Twin baseline-vs-now mini panels colour-coded by severity.
+    """
+    ss = st.session_state
+    if not ss.event_log:
+        st.info(
+            "Run **Record → Stop → Detect** in the sidebar to populate "
+            "the mobile feed."
+        )
+        return
+    summary = ss.event_log
+    events = summary.get("events", [])
+    rows = aggregate_unique_inflections(events)
+    if not events:
+        st.success(
+            "Stable take. No feature crossed σ-low. Your face stayed within "
+            "the geometric envelope of your baseline."
+        )
+        return
+    if ss.active_baseline_key:
+        st.caption(f"Baseline: **{ss.active_baseline_key}**")
+
+    # Constrain to mobile-portrait width on larger screens so the layout
+    # always reads the same. Streamlit columns let us centre + cap width.
+    pad_l, content, pad_r = st.columns([1, 6, 1])
+    with content:
+        for i, r in enumerate(rows[:8]):
+            _render_mobile_card(i + 1, r)
+
+
+def _render_mobile_card(rank: int, r: dict) -> None:
+    ss = st.session_state
+    fx = explain(r["feature"])
+    cat = r["category"]
+    color = CATEGORY_PALETTE[cat]
+    label = CATEGORY_LABEL[cat]
+    best = r["best_event"]
+    peak_t = 0.5 * (best["start_t"] + best["end_t"])
+
+    # Section 1: tight face-crop close-up at full screen width.
+    face_crop = crop_to_face_at_time(peak_t, ss.samples)
+    border_w = min(6, max(2, int(r["peak_z"] // 3)))
+    close_up_html = _img_as_inline_html(
+        face_crop, border_color=color, border_w=border_w, radius=16
+    )
+    st.markdown(close_up_html, unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='text-align:center;color:#9aa0a6;font-size:0.78rem;"
+        f"margin-top:4px'>close-up · t ≈ {peak_t:.2f} s</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Section 2: title + meaning + science + question + transcript + timestamps.
+    st.markdown(
+        f"<div style='margin-top:14px;display:flex;align-items:center;"
+        f"justify-content:space-between'>"
+        f"<div style='font-size:1.05rem;font-weight:bold'>"
+        f"#{rank} · {fx.short}</div>"
+        f"<span style='background:{color};color:white;padding:2px 10px;"
+        f"border-radius:4px;font-size:0.75rem;font-weight:bold'>{label}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='color:#c8d0db;font-size:0.95rem;margin-top:8px'>"
+        f"<b>What it measures.</b> {fx.physical}</div>",
+        unsafe_allow_html=True,
+    )
+    if fx.citation:
+        st.markdown(
+            f"<div style='color:#9aa0a6;font-size:0.88rem;margin-top:4px'>"
+            f"<b>Cited science.</b> {fx.citation}</div>",
+            unsafe_allow_html=True,
+        )
+    if fx.socratic:
+        st.markdown(
+            f"<div style='color:{color};font-size:0.95rem;font-style:italic;"
+            f"margin-top:6px'>{fx.socratic}</div>",
+            unsafe_allow_html=True,
+        )
+    if ss.transcript:
+        spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
+        if spoken:
+            st.markdown(
+                f"<div style='color:#dde6f1;font-size:0.9rem;margin-top:8px;"
+                f"padding:8px 12px;background:#101820;"
+                f"border-left:3px solid #4dabf7;border-radius:4px;"
+                f"font-style:italic'>What you said: “{spoken}”</div>",
+                unsafe_allow_html=True,
+            )
+    st.markdown(
+        f"<div style='color:#6c757d;font-size:0.75rem;margin-top:8px'>"
+        f"first at {r['earliest_start']:.2f} s · "
+        f"latest at {r['latest_end']:.2f} s · "
+        f"{r['n_events']} window(s)</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Section 3: twin baseline → now panels (face-cropped if face feature).
+    st.markdown(
+        "<div style='margin-top:14px'></div>", unsafe_allow_html=True
+    )
+    twin_html = _mobile_twin_html(r, peak_t, color)
+    st.markdown(twin_html, unsafe_allow_html=True)
+    st.markdown(
+        "<hr style='margin:24px 0;border:none;border-top:1px solid #2a2f3a'>",
+        unsafe_allow_html=True,
+    )
+
+
+def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
+    """Twin baseline-vs-now panels rendered larger and side-by-side, sized
+    to fit a phone column."""
+    ss = st.session_state
+    is_face = r["feature"] in _FACE_FEATURES
+    if is_face:
+        baseline_face = baseline_face_crop()
+        now_face = crop_to_face_at_time(peak_t, ss.samples)
+    else:
+        baseline_face = baseline_thumbnail()
+        now_face = thumbnail_at_time(peak_t, ss.samples)
+
+    if baseline_face is None:
+        baseline_face = ss.avatar_bgr
+    if now_face is None:
+        now_face = ss.avatar_bgr
+
+    baseline_ring = "#5cb85c"
+    border_w = min(6, max(2, int(r["peak_z"] // 3)))
+
+    def panel(bgr, ring, ring_w, label, label_color, dim):
+        if bgr is not None:
+            ok, buf = cv2.imencode(".png", bgr)
+            if ok:
+                import base64
+                b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+                src = f"data:image/png;base64,{b64}"
+                filter_style = (
+                    "opacity:0.7;filter:saturate(0.55);" if dim else ""
+                )
+                glow = (
+                    f"box-shadow:0 0 10px {ring};" if not dim else ""
+                )
+                img_html = (
+                    f"<img src='{src}' style='width:100%;height:auto;"
+                    f"border-radius:14px;object-fit:cover;"
+                    f"border:{ring_w}px solid {ring};{filter_style}{glow}'/>"
+                )
+            else:
+                img_html = "<div>👤</div>"
+        else:
+            img_html = (
+                f"<div style='aspect-ratio:1/1;border-radius:14px;"
+                f"border:{ring_w}px solid {ring};display:flex;"
+                f"align-items:center;justify-content:center;font-size:48px;"
+                f"background:#0e1117;{'opacity:0.7;' if dim else ''}'>"
+                f"👤</div>"
+            )
+        return (
+            f"<div style='flex:1;text-align:center'>"
+            f"{img_html}"
+            f"<div style='font-size:0.75rem;color:{label_color};"
+            f"margin-top:6px;letter-spacing:1.5px;font-weight:bold'>"
+            f"{label}</div></div>"
+        )
+
+    return (
+        f"<div style='display:flex;gap:10px;align-items:center'>"
+        f"{panel(baseline_face, baseline_ring, 3, 'BASELINE', '#9aa0a6', dim=True)}"
+        f"<div style='color:{color};font-size:1.6rem;font-weight:bold'>→</div>"
+        f"{panel(now_face, color, border_w, 'NOW', color, dim=False)}"
+        f"</div>"
+    )
+
 
 def render_insights_tab() -> None:
     ss = st.session_state
@@ -1207,8 +1516,8 @@ def main() -> None:
         "No cloud, no data leaves this device."
     )
 
-    tab_live, tab_insights, tab_tech, tab_guide = st.tabs(
-        ["📹 Live", "🎯 Insights", "🔬 Technical", "❓ Guide"]
+    tab_live, tab_insights, tab_mobile, tab_tech, tab_guide = st.tabs(
+        ["📹 Live", "🎯 Insights", "📱 Mobile", "🔬 Technical", "❓ Guide"]
     )
 
     with tab_live:
@@ -1223,6 +1532,8 @@ def main() -> None:
         )
     with tab_insights:
         render_insights_tab()
+    with tab_mobile:
+        render_mobile_tab()
     with tab_tech:
         render_technical_tab()
     with tab_guide:
