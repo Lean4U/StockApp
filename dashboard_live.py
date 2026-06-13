@@ -660,10 +660,12 @@ def render_line_chart(
     window: tuple,
     accent_color: str,
 ) -> None:
-    """Time-series of the dominant feature's z-score over the take.
-    BASELINE drawn as the green zero line, NOW drawn as the deviation
-    trace, with the inflection window highlighted in the accent colour
-    and the watch (3 σ) / out-of-norm (6 σ) thresholds dashed.
+    """Time-series of the dominant feature over the take, scaled to the
+    same percent-of-out-of-norm axis the spider chart uses (so 0 = at
+    baseline, ±50 % = watch line, ±100 % = out of norm). BASELINE drawn
+    as the green zero rule; NOW drawn as the deviation trace; the
+    inflection window highlighted in the accent colour; the watch
+    (±50 %) and out-of-norm (±100 %) thresholds dashed.
     """
     if not samples or baseline is None:
         return
@@ -674,7 +676,9 @@ def render_line_chart(
     for s in samples:
         feats = feature_vector(s)
         z = (feats - baseline.means) / baseline.stds
-        rows.append({"t": s.t, "z": float(z[j])})
+        # Map σ to percent of out-of-norm: σ-high (6 σ) = 100 %.
+        # Preserve sign so the trace can dip below the baseline rule too.
+        rows.append({"t": s.t, "pct": float(z[j]) / 6.0 * 100.0})
     df = pd.DataFrame(rows)
     if df.empty:
         return
@@ -685,12 +689,12 @@ def render_line_chart(
         .encode(y="y:Q")
     )
     threshold_low = (
-        alt.Chart(pd.DataFrame({"y": [3, -3]}))
+        alt.Chart(pd.DataFrame({"y": [50, -50]}))
         .mark_rule(color="#9aa0a6", strokeDash=[4, 4])
         .encode(y="y:Q")
     )
     threshold_high = (
-        alt.Chart(pd.DataFrame({"y": [6, -6]}))
+        alt.Chart(pd.DataFrame({"y": [100, -100]}))
         .mark_rule(color="#d9534f", strokeDash=[4, 4])
         .encode(y="y:Q")
     )
@@ -709,10 +713,14 @@ def render_line_chart(
         .mark_line(color=accent_color, strokeWidth=2)
         .encode(
             x=alt.X("t:Q", title="time (s)"),
-            y=alt.Y("z:Q", title="z-score (σ vs BASELINE)"),
+            y=alt.Y(
+                "pct:Q",
+                title="% of out-of-norm",
+                axis=alt.Axis(labelExpr="datum.value + '%'"),
+            ),
             tooltip=[
                 alt.Tooltip("t:Q", format=".2f"),
-                alt.Tooltip("z:Q", format=".2f"),
+                alt.Tooltip("pct:Q", title="% of out-of-norm", format=".0f"),
             ],
         )
     )
@@ -720,7 +728,7 @@ def render_line_chart(
     legend_chart = alt.Chart(
         pd.DataFrame(
             {
-                "label": ["BASELINE", "NOW", "watch line", "out of norm"],
+                "label": ["BASELINE (0%)", "NOW", "watch line (±50%)", "out of norm (±100%)"],
                 "color": ["#2a8a3a", accent_color, "#9aa0a6", "#d9534f"],
                 "x": [0, 1, 2, 3],
             }
