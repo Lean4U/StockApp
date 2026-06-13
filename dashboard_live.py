@@ -760,6 +760,7 @@ def init_state() -> None:
     ss.setdefault("selected_event_idx", 0)
     ss.setdefault("avatar_bgr", None)
     ss.setdefault("out_lang", "en")
+    ss.setdefault("last_enrolled", None)
 
 
 def crop_to_square(img: np.ndarray, size: int = 128) -> np.ndarray:
@@ -2323,15 +2324,43 @@ def render_sidebar() -> dict:
             else:
                 ss.signatures[new_name.strip()] = base
                 save_signatures(ss.signatures)
-                st.success(
-                    f"Enrolled '{new_name.strip()}' — "
-                    f"n={base.n_samples}, "
-                    f"duration={base.duration_s:.2f}s"
+                ss.last_enrolled = {
+                    "name": new_name.strip(),
+                    "n_samples": base.n_samples,
+                    "duration_s": float(base.duration_s),
+                    "at": time.time(),
+                }
+                # Toast persists across the upcoming st.rerun(), unlike
+                # st.success() which gets wiped when the script restarts.
+                st.toast(
+                    f"✅ Enrolled '{new_name.strip()}' "
+                    f"(n={base.n_samples}, "
+                    f"duration={base.duration_s:.1f}s)",
+                    icon="💾",
                 )
                 # Re-run immediately so the new baseline shows up in the
                 # Compare-against selectbox and the Next-step guidance
                 # panel reflects the new state on this same click.
                 st.rerun()
+
+        # Sticky 'last enrolled' indicator so the user can see at a glance
+        # which baseline they most recently saved (toasts disappear after
+        # a few seconds; the sticky badge stays).
+        if ss.last_enrolled:
+            le = ss.last_enrolled
+            st.markdown(
+                f"<div style='margin-top:8px;padding:10px 12px;"
+                f"background:#eafbf0;border:1px solid #5cb85c;"
+                f"border-radius:6px;color:#0a3a18;font-size:0.85rem'>"
+                f"<b>💾 Last enrolled:</b> "
+                f"<code style='background:#d0f0d8;padding:1px 5px;"
+                f"border-radius:3px;color:#0a3a18'>{le['name']}</code>"
+                f"<br/><span style='color:#2a6a3a;font-size:0.78rem'>"
+                f"{le['n_samples']} samples · "
+                f"{le['duration_s']:.1f} s · saved to signatures.json"
+                f"</span></div>",
+                unsafe_allow_html=True,
+            )
 
         st.header("🔍  Detect")
         do_transcribe = st.checkbox(
