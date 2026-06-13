@@ -1368,6 +1368,7 @@ def render_sidebar() -> dict:
         if st.button(
             "📷  Snap from webcam",
             use_container_width=True,
+            key="snap_avatar",
             help="Grab the current webcam frame and use it as your avatar.",
         ):
             snap_cap = get_camera(int(camera_idx))
@@ -1385,7 +1386,7 @@ def render_sidebar() -> dict:
                     width=88,
                 )
             with cols_av[1]:
-                if st.button("Clear", use_container_width=True):
+                if st.button("Clear", use_container_width=True, key="clear_avatar"):
                     ss.avatar_bgr = None
                     st.rerun()
 
@@ -1401,6 +1402,7 @@ def render_sidebar() -> dict:
         if c1.button(
             "Record ▶" if not ss.recording else "Stop ■",
             use_container_width=True,
+            key="rec_toggle",
         ):
             now = time.time()
             if not ss.recording:
@@ -1415,7 +1417,7 @@ def render_sidebar() -> dict:
                 ss.recording = False
                 if recorder.available and recorder.recording:
                     recorder.stop()
-        if c2.button("Clear", use_container_width=True):
+        if c2.button("Clear", use_container_width=True, key="clear_take"):
             ss.samples = []
             ss.start_t = None
             ss.event_log = None
@@ -1444,7 +1446,7 @@ def render_sidebar() -> dict:
             placeholder="e.g. julio_seated_english",
             help="The label you'll pick from 'Compare against' next time.",
         )
-        if st.button("Enroll", use_container_width=True):
+        if st.button("Enroll", use_container_width=True, key="enroll_baseline"):
             base = fit_baseline(ss.samples, std_floor=_LIVE_STD_FLOOR)
             if base is None:
                 st.error("Need more samples first.")
@@ -1473,6 +1475,7 @@ def render_sidebar() -> dict:
         if st.button(
             "Detect events vs selected baseline",
             use_container_width=True,
+            key="detect_btn",
         ):
             if baseline_choice == "— none —":
                 st.error("Pick a baseline first.")
