@@ -1909,6 +1909,10 @@ def render_sidebar() -> dict:
                 ss.recording = False
                 if recorder.available and recorder.recording:
                     recorder.stop()
+            # Force an immediate re-render so the button label flips to
+            # "Stop ■" / "Record ▶" on this same click instead of waiting
+            # for the next user interaction.
+            st.rerun()
         if c2.button("Clear", use_container_width=True, key="clear_take"):
             ss.samples = []
             ss.start_t = None
