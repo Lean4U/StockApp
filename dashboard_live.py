@@ -283,7 +283,79 @@ def avatar_html(avatar_bgr: Optional[np.ndarray], size: int = 84) -> str:
     )
 
 
-# Feature names whose icon should swap for the user's avatar when one is set.
+def _avatar_src(avatar_bgr: Optional[np.ndarray]) -> Optional[str]:
+    if avatar_bgr is None:
+        return None
+    ok, buf = cv2.imencode(".png", avatar_bgr)
+    if not ok:
+        return None
+    import base64
+    return "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+
+
+def twin_avatar_block_html(
+    avatar_bgr: Optional[np.ndarray],
+    peak_z: float,
+    color: str,
+    size: int = 56,
+) -> str:
+    """Twin display for face-region inflections.
+      Left  — BASELINE: avatar (or 👤) dimmed, green ring.
+      Right — NOW:      avatar (or 👤), border thickness + glow scale with σ.
+    Encodes the misalignment as colour: green = at rest, red intensity = deviation.
+    """
+    baseline_ring = "#5cb85c"
+    border_w = min(6, max(2, int(peak_z // 3)))
+    src = _avatar_src(avatar_bgr)
+
+    if src is not None:
+        baseline_face = (
+            f"<img src='{src}' style='width:{size}px;height:{size}px;"
+            f"border-radius:50%;object-fit:cover;"
+            f"border:3px solid {baseline_ring};opacity:0.65;"
+            f"filter:saturate(0.55)'/>"
+        )
+        actual_face = (
+            f"<img src='{src}' style='width:{size}px;height:{size}px;"
+            f"border-radius:50%;object-fit:cover;"
+            f"border:{border_w}px solid {color};"
+            f"box-shadow:0 0 10px {color}'/>"
+        )
+    else:
+        baseline_face = (
+            f"<div style='width:{size}px;height:{size}px;border-radius:50%;"
+            f"border:3px solid {baseline_ring};display:flex;align-items:center;"
+            f"justify-content:center;font-size:{int(size * 0.6)}px;"
+            f"background:#0e1117;opacity:0.65;margin:0 auto'>👤</div>"
+        )
+        actual_face = (
+            f"<div style='width:{size}px;height:{size}px;border-radius:50%;"
+            f"border:{border_w}px solid {color};display:flex;align-items:center;"
+            f"justify-content:center;font-size:{int(size * 0.6)}px;"
+            f"background:#0e1117;box-shadow:0 0 10px {color};margin:0 auto'>"
+            f"👤</div>"
+        )
+
+    return (
+        f"<div style='display:flex;justify-content:center;gap:6px;"
+        f"align-items:center'>"
+        f"<div style='text-align:center'>"
+        f"{baseline_face}"
+        f"<div style='font-size:0.6rem;color:#9aa0a6;margin-top:4px;"
+        f"letter-spacing:1.5px'>BASELINE</div>"
+        f"</div>"
+        f"<div style='color:{color};font-size:1.1rem;font-weight:bold;"
+        f"padding:0 2px'>→</div>"
+        f"<div style='text-align:center'>"
+        f"{actual_face}"
+        f"<div style='font-size:0.6rem;color:{color};margin-top:4px;"
+        f"letter-spacing:1.5px;font-weight:bold'>NOW</div>"
+        f"</div>"
+        f"</div>"
+    )
+
+
+# Feature names whose icon should swap for the twin-avatar block on a row.
 _FACE_FEATURES = {
     "left_brow_height_norm",
     "right_brow_height_norm",
@@ -731,10 +803,11 @@ def _render_inflection_row(rank: int, r: dict) -> None:
         glyph, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
         severity = severity_word(r["peak_z"])
         bars_html = severity_bar_html(r["peak_z"], color)
-        # Avatar replaces the emoji on face-region features when one is set.
-        use_avatar = ss.avatar_bgr is not None and r["feature"] in _FACE_FEATURES
-        if use_avatar:
-            head_html = avatar_html(ss.avatar_bgr, size=84)
+        is_face = r["feature"] in _FACE_FEATURES
+        if is_face:
+            head_html = twin_avatar_block_html(
+                ss.avatar_bgr, r["peak_z"], color, size=56
+            )
         else:
             head_html = (
                 f"<div style='font-size:2.6rem;line-height:1'>{glyph}</div>"
