@@ -1490,14 +1490,27 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
     import base64
     b64 = base64.b64encode(buf.tobytes()).decode("ascii")
     src = f"data:image/png;base64,{b64}"
+    baseline_tooltip = (
+        "Your enrolled normal — the statistical profile of how your face sits "
+        "when you're at rest. Not a single moment in time; the median + spread "
+        "of dozens of frames captured during enrollment."
+    )
+    now_tooltip = (
+        "Your face geometry at the moment of this nuance — the frame closest "
+        "to the peak of the detected deviation window."
+    )
     return (
         f"<div style='margin-top:8px;text-align:center'>"
         f"<div style='font-size:0.85rem;color:#0a0a0a;"
         f"letter-spacing:1.5px;font-weight:bold;margin-bottom:8px'>"
         f"OVERLAY "
-        f"<span style='color:{baseline_ring}'>● baseline</span> "
+        f"<span style='color:{baseline_ring};cursor:help;"
+        f"border-bottom:1px dotted {baseline_ring}' "
+        f"title='{baseline_tooltip}'>● baseline</span> "
         f"<span style='color:#0a0a0a'>vs</span> "
-        f"<span style='color:#d9534f'>● now</span>"
+        f"<span style='color:#d9534f;cursor:help;"
+        f"border-bottom:1px dotted #d9534f' "
+        f"title='{now_tooltip}'>● now</span>"
         f"&nbsp;&nbsp;<span style='color:{color}'>({skew_label})</span>"
         f"</div>"
         f"<img src='{src}' style='width:100%;height:auto;"
@@ -1902,6 +1915,13 @@ def render_sidebar() -> dict:
             "Compare against",
             options=["— none —"] + names,
             index=0,
+            help=(
+                "Your enrolled BASELINE — the statistical profile of how your "
+                "face sits when you're at rest. Not a single moment; the "
+                "median + spread of dozens of frames from your enrollment "
+                "session. One baseline per language / per glasses-on-off "
+                "configuration is encouraged."
+            ),
         )
         st.header("🎬  Recording")
         c1, c2 = st.columns(2)
