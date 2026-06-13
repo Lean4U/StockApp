@@ -78,6 +78,58 @@ CATEGORY_PALETTE = {
     "other": "#5bc0de",
 }
 
+# Visual descriptors for each feature: (pictograph, side-asymmetry label).
+# Drives the icon column on the Insights ranked list — no numbers, just a
+# glyph + direction + severity bars.
+FEATURE_GLYPH: Dict[str, tuple] = {
+    "left_brow_height_norm":  ("🤨", "◀ LEFT"),
+    "right_brow_height_norm": ("🤨", "RIGHT ▶"),
+    "angle_LM":               ("😉", "◀ LEFT mouth"),
+    "angle_RM":               ("😉", "RIGHT mouth ▶"),
+    "mouth_offset_norm":      ("🙃", "off-centre"),
+    "mouth_line_norm":        ("😮", "wide"),
+    "side_mouth_norm":        ("😮", "wide"),
+    "side_left_norm":         ("↔", "◀ LEFT side"),
+    "side_right_norm":        ("↔", "RIGHT side ▶"),
+    "yaw_proxy":              ("🔄", "◀ turn ▶"),
+    "pitch_proxy":            ("↕", "▲ chin ▼"),
+    "roll_proxy":             ("⤵", "tilt"),
+    "side_eye_norm":          ("👓", "eye line"),
+    "eye_line_norm":          ("👓", "eye line"),
+    "angle_LE":               ("👁", "◀ LEFT eye"),
+    "angle_RE":               ("👁", "RIGHT eye ▶"),
+    "diag_LE_RM_norm":        ("⟍", "LE → RM diag"),
+    "diag_RE_LM_norm":        ("⟋", "RE → LM diag"),
+    "diag_ratio":             ("⚖", "diag balance"),
+    "eye_mouth_ratio":        ("📏", "vertical proportion"),
+    "parallelism_residual":   ("⊥", "non-parallel"),
+}
+
+
+def severity_word(peak_z: float) -> str:
+    """Plain-language severity label — no numbers."""
+    if peak_z >= 12:
+        return "intense"
+    if peak_z >= 6:
+        return "marked"
+    if peak_z >= 3:
+        return "noticeable"
+    return "subtle"
+
+
+def severity_bar_html(peak_z: float, color: str) -> str:
+    """4-pip horizontal severity bar, filled in proportion to peak σ."""
+    levels = 4
+    filled = max(1, min(levels, int(peak_z // 3)))
+    pips = []
+    for i in range(levels):
+        c = color if i < filled else "#3a3f4a"
+        pips.append(
+            f"<span style='display:inline-block;width:18px;height:6px;"
+            f"background:{c};margin:0 1px;border-radius:2px'></span>"
+        )
+    return "".join(pips)
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # Persistence
@@ -149,14 +201,18 @@ def draw_trapezium(img: np.ndarray, sample: TrapeziumSample, recording: bool) ->
     cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
 
-def thumbnail_capture(frame: np.ndarray, sample_idx: int, every: int = 5) -> None:
-    """Stash a small BGR frame every ``every`` samples (~0.5 s at 10 fps)."""
+def thumbnail_capture(frame: np.ndarray, sample_idx: int, every: int = 3) -> None:
+    """Stash a BGR frame every ``every`` samples (~0.3 s at 10 fps).
+    Higher-resolution than v1 so the Insights tab close-ups aren't blurry.
+    """
     if sample_idx % every != 0:
         return
     h, w = frame.shape[:2]
-    target_w = 220
+    target_w = 540
     if w > target_w:
-        thumb = cv2.resize(frame, (target_w, int(h * target_w / w)))
+        thumb = cv2.resize(
+            frame, (target_w, int(h * target_w / w)), interpolation=cv2.INTER_AREA
+        )
     else:
         thumb = frame.copy()
     st.session_state.frame_thumbnails[sample_idx] = thumb
@@ -598,9 +654,9 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             )
         if fx.socratic:
             st.markdown(
-                f"<div style='color:{color};font-size:0.88rem;font-style:italic;"
-                f"margin-top:3px'>"
-                f"A question to sit with: {fx.socratic}</div>",
+                f"<div style='color:{color};font-size:0.92rem;font-style:italic;"
+                f"margin-top:6px'>"
+                f"{fx.socratic}</div>",
                 unsafe_allow_html=True,
             )
         if ss.transcript:
@@ -618,16 +674,23 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             f"<div style='color:#6c757d;font-size:0.75rem;margin-top:6px'>"
             f"first at {r['earliest_start']:.2f}s · "
             f"latest at {r['latest_end']:.2f}s · "
-            f"{r['n_events']} window(s) · peak {r['peak_z']:.1f} σ</div>",
+            f"{r['n_events']} window(s)</div>",
             unsafe_allow_html=True,
         )
     with cols[3]:
+        glyph, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
+        severity = severity_word(r["peak_z"])
+        bars_html = severity_bar_html(r["peak_z"], color)
         st.markdown(
-            f"<div style='text-align:right;padding-top:14px'>"
-            f"<div style='font-size:1.6rem;font-weight:bold;color:{color}'>"
-            f"{r['weight_pct']:.0f}%</div>"
-            f"<div style='font-size:0.75rem;color:#9aa0a6'>"
-            f"of session weight</div></div>",
+            f"<div style='text-align:center;padding-top:6px'>"
+            f"<div style='font-size:2.6rem;line-height:1'>{glyph}</div>"
+            f"<div style='font-size:0.72rem;color:{color};font-weight:bold;"
+            f"letter-spacing:1px;margin-top:4px'>{side_label}</div>"
+            f"<div style='margin-top:8px'>{bars_html}</div>"
+            f"<div style='font-size:0.7rem;color:#9aa0a6;margin-top:6px;"
+            f"text-transform:uppercase;letter-spacing:1.5px'>"
+            f"{severity}</div>"
+            f"</div>",
             unsafe_allow_html=True,
         )
     st.markdown(
