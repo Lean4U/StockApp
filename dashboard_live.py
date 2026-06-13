@@ -1440,30 +1440,8 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     baseline = _active_baseline()
     lang = ss.get("out_lang", "en")
     if baseline is not None:
-        # Strip <b> tags from the implication HTML for use inside an HTML
-        # title= attribute (which can't contain markup).
-        implication_plain = (
-            t("implication.html", lang)
-            .replace("<b>", "")
-            .replace("</b>", "")
-            .replace("&nbsp;", " ")
-        )
-        # Data callout: nuance number + feature title. Dotted underline +
-        # cursor:help signal that the chip is hover-interactive; the
-        # native browser tooltip shows the implication.
         st.markdown(
-            f"<div style='text-align:center;margin-top:20px;margin-bottom:4px'>"
-            f"<span style='display:inline-block;padding:6px 14px;"
-            f"background:#f6f8fc;border:1px solid #c8d0db;border-radius:18px;"
-            f"font-size:0.95rem;font-weight:700;color:#0a0a0a;"
-            f"cursor:help;border-bottom:2px dotted {color}' "
-            f"title='{implication_plain}'>"
-            f"#{rank} · {fx.short}"
-            f"</span></div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='margin-top:14px;font-size:1.35rem;color:#0a0a0a;"
+            "<div style='margin-top:28px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
             f"{t('section.where_moved', lang)}</div>"
@@ -1474,8 +1452,31 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             unsafe_allow_html=True,
         )
         render_spider_chart(peak_t, ss.samples, baseline, r["feature"], color)
+
+        # Strip <b> tags from the implication HTML for use inside an HTML
+        # title= attribute (which can't contain markup).
+        implication_plain = (
+            t("implication.html", lang)
+            .replace("<b>", "")
+            .replace("</b>", "")
+            .replace("&nbsp;", " ")
+        )
+        # Data callout above the line chart: nuance number + feature title.
+        # Dotted underline + cursor:help signal that the chip is hover-
+        # interactive; native browser tooltip surfaces the implication.
         st.markdown(
-            "<div style='margin-top:22px;font-size:1.35rem;color:#0a0a0a;"
+            f"<div style='text-align:center;margin-top:22px;margin-bottom:4px'>"
+            f"<span style='display:inline-block;padding:6px 14px;"
+            f"background:#f6f8fc;border:1px solid #c8d0db;border-radius:18px;"
+            f"font-size:0.95rem;font-weight:700;color:#0a0a0a;"
+            f"cursor:help;border-bottom:2px dotted {color}' "
+            f"title='{implication_plain}'>"
+            f"#{rank} · {fx.short}"
+            f"</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='margin-top:8px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
             f"{t('section.over_time', lang)} · "
