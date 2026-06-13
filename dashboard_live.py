@@ -281,11 +281,13 @@ def _face_crop_box(
     h = y_max - y_min
     if w <= 0 or h <= 0:
         return None
-    # Padding: enough to include hair + chin + a sliver of neck without
-    # spilling into the room behind the subject.
-    pad_x = w * 0.30
-    pad_y_top = h * 0.65
-    pad_y_bot = h * 0.35
+    # Crop to head + shoulders rather than face only. The trapezium box
+    # is small (eye corners + mouth corners + brows); to capture the head
+    # top and the chest line we pad heavily — laterally for shoulders,
+    # vertically for hair on top and the chest below.
+    pad_x = w * 1.8
+    pad_y_top = h * 1.8
+    pad_y_bot = h * 3.5
     left = int(max(0, x_min - pad_x))
     top = int(max(0, y_min - pad_y_top))
     right = int(min(tw, x_max + pad_x))
@@ -719,11 +721,14 @@ def render_live_tab(
         t = now - ss.start_t
         sample = detector.detect(frame, t)
         if sample is not None:
-            draw_trapezium(frame, sample, ss.recording)
+            # Capture the RAW frame for thumbnails BEFORE drawing the
+            # trapezium overlay, so BASELINE / NOW close-ups in the
+            # Mobile and Insights tabs show clean photographs.
             if ss.recording:
                 sample_idx = len(ss.samples)
                 ss.samples.append(sample)
-                thumbnail_capture(frame, sample_idx)
+                thumbnail_capture(frame.copy(), sample_idx)
+            draw_trapezium(frame, sample, ss.recording)
         else:
             cv2.putText(
                 frame,
@@ -854,7 +859,7 @@ def render_mobile_tab() -> None:
         with nav_label:
             st.markdown(
                 f"<div style='text-align:center;font-weight:bold;"
-                f"font-size:1rem;padding-top:6px;color:#dde6f1;"
+                f"font-size:1rem;padding-top:6px;color:#0a0a0a;"
                 f"letter-spacing:1px'>"
                 f"INFLECTION {ss.mobile_idx + 1} OF {total}"
                 f"</div>",
@@ -897,26 +902,26 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     # Title row.
     st.markdown(
         f"<div style='display:flex;align-items:center;"
-        f"justify-content:space-between;color:#ffffff'>"
-        f"<div style='font-size:1.1rem;font-weight:bold;color:#ffffff'>"
+        f"justify-content:space-between;color:#0a0a0a'>"
+        f"<div style='font-size:1.1rem;font-weight:bold;color:#0a0a0a'>"
         f"#{rank} · {fx.short}</div>"
         f"<span style='background:{color};color:white;padding:3px 10px;"
         f"border-radius:4px;font-size:0.78rem;font-weight:bold'>{label}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
-    # Body text — bright enough to be readable against dark theme.
+    # Body copy — dark text for light-theme readability.
     st.markdown(
-        f"<div style='color:#f0f3f8;font-size:1.0rem;margin-top:10px;"
+        f"<div style='color:#1a1a1a;font-size:1.0rem;margin-top:10px;"
         f"line-height:1.45'>"
-        f"<b style='color:#ffffff'>What it measures.</b> {fx.physical}</div>",
+        f"<b style='color:#0a0a0a'>What it measures.</b> {fx.physical}</div>",
         unsafe_allow_html=True,
     )
     if fx.citation:
         st.markdown(
-            f"<div style='color:#d8dde6;font-size:0.92rem;margin-top:6px;"
+            f"<div style='color:#2c2c2c;font-size:0.92rem;margin-top:6px;"
             f"line-height:1.45'>"
-            f"<b style='color:#ffffff'>Cited science.</b> {fx.citation}</div>",
+            f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
             unsafe_allow_html=True,
         )
     if fx.socratic:
@@ -929,16 +934,16 @@ def _render_mobile_card(rank: int, r: dict) -> None:
         spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
         if spoken:
             st.markdown(
-                f"<div style='color:#f3f6fb;font-size:0.95rem;margin-top:10px;"
-                f"padding:10px 14px;background:#0c1320;"
-                f"border-left:4px solid #4dabf7;border-radius:4px;"
+                f"<div style='color:#0a1a2e;font-size:0.95rem;margin-top:10px;"
+                f"padding:10px 14px;background:#eaf3ff;"
+                f"border-left:4px solid #1559b8;border-radius:4px;"
                 f"font-style:italic'>"
-                f"<span style='color:#7fb8ff;font-weight:bold;font-style:normal'>"
+                f"<span style='color:#1559b8;font-weight:bold;font-style:normal'>"
                 f"What you said.</span> “{spoken}”</div>",
                 unsafe_allow_html=True,
             )
     st.markdown(
-        f"<div style='color:#c8d0db;font-size:0.82rem;margin-top:10px'>"
+        f"<div style='color:#404040;font-size:0.82rem;margin-top:10px'>"
         f"first at {r['earliest_start']:.2f} s · "
         f"latest at {r['latest_end']:.2f} s · "
         f"{r['n_events']} window(s)</div>",
@@ -947,7 +952,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
 
     # Section 3 (was Section 3 of three; first close-up was dropped).
     st.markdown(
-        "<div style='margin-top:24px;font-size:0.95rem;color:#e8eef5;"
+        "<div style='margin-top:24px;font-size:0.95rem;color:#0a0a0a;"
         "letter-spacing:2px;text-transform:uppercase;text-align:center;"
         "font-weight:bold'>"
         "Baseline vs. now</div>",
@@ -1145,23 +1150,23 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             st.caption("(no close-up frame captured for this moment)")
     with cols[2]:
         st.markdown(
-            f"<span style='color:#ffffff;font-weight:bold'>{fx.short}</span>"
+            f"<span style='color:#0a0a0a;font-weight:bold'>{fx.short}</span>"
             f" &nbsp;"
             f"<span style='background:{color};color:white;padding:1px 8px;"
             f"border-radius:4px;font-size:0.75rem'>{label}</span>",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"<div style='color:#f0f3f8;font-size:0.95rem;margin-top:4px;"
+            f"<div style='color:#1a1a1a;font-size:0.95rem;margin-top:4px;"
             f"line-height:1.4'>"
-            f"<b style='color:#ffffff'>What it measures.</b> {fx.physical}</div>",
+            f"<b style='color:#0a0a0a'>What it measures.</b> {fx.physical}</div>",
             unsafe_allow_html=True,
         )
         if fx.citation:
             st.markdown(
-                f"<div style='color:#d8dde6;font-size:0.9rem;margin-top:3px;"
+                f"<div style='color:#2c2c2c;font-size:0.9rem;margin-top:3px;"
                 f"line-height:1.4'>"
-                f"<b style='color:#ffffff'>Cited science.</b> {fx.citation}</div>",
+                f"<b style='color:#0a0a0a'>Cited science.</b> {fx.citation}</div>",
                 unsafe_allow_html=True,
             )
         if fx.socratic:
@@ -1175,16 +1180,16 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
             if spoken:
                 st.markdown(
-                    f"<div style='color:#f3f6fb;font-size:0.9rem;margin-top:6px;"
-                    f"padding:6px 10px;background:#0c1320;"
-                    f"border-left:3px solid #4dabf7;border-radius:4px;"
+                    f"<div style='color:#0a1a2e;font-size:0.9rem;margin-top:6px;"
+                    f"padding:6px 10px;background:#eaf3ff;"
+                    f"border-left:3px solid #1559b8;border-radius:4px;"
                     f"font-style:italic'>"
-                    f"<span style='color:#7fb8ff;font-weight:bold;font-style:normal'>"
+                    f"<span style='color:#1559b8;font-weight:bold;font-style:normal'>"
                     f"What you said.</span> “{spoken}”</div>",
                     unsafe_allow_html=True,
                 )
         st.markdown(
-            f"<div style='color:#c8d0db;font-size:0.78rem;margin-top:6px'>"
+            f"<div style='color:#404040;font-size:0.78rem;margin-top:6px'>"
             f"first at {r['earliest_start']:.2f}s · "
             f"latest at {r['latest_end']:.2f}s · "
             f"{r['n_events']} window(s)</div>",
