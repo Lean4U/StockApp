@@ -592,7 +592,9 @@ def render_spider_chart(
     # Map σ → percent of breach threshold (6 σ = 100 %).
     # Cap to 200 % so a single extreme outlier doesn't eat the chart.
     pct_vals = [min(abs(z_map[f]) / 6.0 * 100.0, 200.0) for f in features]
-    labels = list(features)  # technical feature names (the "(parenthetical)" text)
+    # Spider axis labels: technical feature names rendered as BOLD UPPER
+    # words with spaces in place of underscores so they read naturally.
+    labels = [f.replace("_", " ").upper() for f in features]
 
     angles = np.linspace(0, 2 * np.pi, len(features), endpoint=False).tolist()
     angles += angles[:1]
@@ -606,7 +608,7 @@ def render_spider_chart(
     theta_ring = np.linspace(0, 2 * np.pi, 200)
     r_outer = np.full_like(theta_ring, 50.0)
     ax.fill(theta_ring, r_outer, color="#2a8a3a", alpha=0.22,
-            label="BASELINE (Stable Zone)")
+            label="BASELINE (Stable Zone - Normal)")
     ax.plot(theta_ring, r_outer, color="#2a8a3a", linewidth=1.5)
 
     # Dashed OUT-OF-NORM circle at 100% — the σ-high statistical threshold.
@@ -621,9 +623,11 @@ def render_spider_chart(
             marker="o", markersize=5)
     ax.fill(angles, now_vals, color=accent_color, alpha=0.22)
 
-    ax.set_thetagrids(
+    theta_labels = ax.set_thetagrids(
         np.degrees(angles[:-1]), labels, fontsize=9, color="#1a1a1a"
     )
+    for lbl in ax.get_xticklabels():
+        lbl.set_fontweight("bold")
     rmax = max(max(pct_vals) * 1.15, 120.0)
     ax.set_ylim(0, rmax)
     ax.set_rticks([50, 100])
@@ -1436,15 +1440,36 @@ def _render_mobile_card(rank: int, r: dict) -> None:
     baseline = _active_baseline()
     lang = ss.get("out_lang", "en")
     if baseline is not None:
+        # Strip <b> tags from the implication HTML for use inside an HTML
+        # title= attribute (which can't contain markup).
+        implication_plain = (
+            t("implication.html", lang)
+            .replace("<b>", "")
+            .replace("</b>", "")
+            .replace("&nbsp;", " ")
+        )
+        # Data callout: nuance number + feature title. Dotted underline +
+        # cursor:help signal that the chip is hover-interactive; the
+        # native browser tooltip shows the implication.
         st.markdown(
-            "<div style='margin-top:28px;font-size:1.35rem;color:#0a0a0a;"
+            f"<div style='text-align:center;margin-top:20px;margin-bottom:4px'>"
+            f"<span style='display:inline-block;padding:6px 14px;"
+            f"background:#f6f8fc;border:1px solid #c8d0db;border-radius:18px;"
+            f"font-size:0.95rem;font-weight:700;color:#0a0a0a;"
+            f"cursor:help;border-bottom:2px dotted {color}' "
+            f"title='{implication_plain}'>"
+            f"#{rank} · {fx.short}"
+            f"</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='margin-top:14px;font-size:1.35rem;color:#0a0a0a;"
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
             f"{t('section.where_moved', lang)}</div>"
             "<div style='text-align:center;color:#404040;font-size:0.9rem;"
             "font-style:italic;margin-top:4px'>"
-            "each spoke is one geometric dimension; the green ring is your "
-            "stable zone, the red ring is the breach line"
+            f"{t('spider.subtitle', lang)}"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -1605,7 +1630,6 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         f"<span style='color:#d9534f;cursor:help;"
         f"border-bottom:1px dotted #d9534f' "
         f"title='{now_tooltip}'>{t('label.now_vs', lang)}</span>"
-        f"&nbsp;&nbsp;<span style='color:{color}'>({skew_label})</span>"
         f"</div>"
         f"<img src='{src}' style='width:100%;height:auto;"
         f"border-radius:14px;border:2px solid #1a1a1a;"
