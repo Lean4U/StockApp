@@ -293,43 +293,77 @@ def _avatar_src(avatar_bgr: Optional[np.ndarray]) -> Optional[str]:
     return "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
 
+def baseline_thumbnail() -> Optional[np.ndarray]:
+    """Return the earliest thumbnail in the current take as a proxy for
+    'baseline body posture'. The very first frames of a recording are when
+    the subject is still settling — closest available stand-in for at-rest.
+    """
+    thumbs = st.session_state.frame_thumbnails
+    if not thumbs:
+        return None
+    first_key = next(iter(thumbs))
+    return thumbs[first_key]
+
+
 def twin_avatar_block_html(
-    avatar_bgr: Optional[np.ndarray],
+    inflection_peak_t: float,
+    samples: List[TrapeziumSample],
     peak_z: float,
     color: str,
-    size: int = 56,
+    fallback_avatar_bgr: Optional[np.ndarray],
+    size: int = 80,
 ) -> str:
-    """Twin display for face-region inflections.
-      Left  — BASELINE: avatar (or 👤) dimmed, green ring.
-      Right — NOW:      avatar (or 👤), border thickness + glow scale with σ.
-    Encodes the misalignment as colour: green = at rest, red intensity = deviation.
+    """Twin display for face-region inflections, comparing real captured
+    body language from the take itself:
+
+      Left  — BASELINE: the earliest frame in the recording (your settled
+              starting posture), de-saturated, green ring.
+      Right — NOW:      the frame closest to the inflection peak — your
+              actual body language at that moment, with a severity-coloured
+              ring + glow whose thickness scales with σ.
+
+    If the take has no captured thumbnails yet, fall back to the uploaded
+    avatar for both panels (or 👤 if no avatar is set either).
     """
     baseline_ring = "#5cb85c"
     border_w = min(6, max(2, int(peak_z // 3)))
-    src = _avatar_src(avatar_bgr)
 
-    if src is not None:
+    baseline_frame = baseline_thumbnail()
+    now_frame = thumbnail_at_time(inflection_peak_t, samples)
+
+    if baseline_frame is None:
+        baseline_frame = fallback_avatar_bgr
+    if now_frame is None:
+        now_frame = fallback_avatar_bgr
+
+    baseline_src = _avatar_src(baseline_frame)
+    now_src = _avatar_src(now_frame)
+
+    if baseline_src is not None:
         baseline_face = (
-            f"<img src='{src}' style='width:{size}px;height:{size}px;"
-            f"border-radius:50%;object-fit:cover;"
+            f"<img src='{baseline_src}' style='width:{size}px;height:{size}px;"
+            f"border-radius:14px;object-fit:cover;"
             f"border:3px solid {baseline_ring};opacity:0.65;"
-            f"filter:saturate(0.55)'/>"
-        )
-        actual_face = (
-            f"<img src='{src}' style='width:{size}px;height:{size}px;"
-            f"border-radius:50%;object-fit:cover;"
-            f"border:{border_w}px solid {color};"
-            f"box-shadow:0 0 10px {color}'/>"
+            f"filter:saturate(0.5)'/>"
         )
     else:
         baseline_face = (
-            f"<div style='width:{size}px;height:{size}px;border-radius:50%;"
+            f"<div style='width:{size}px;height:{size}px;border-radius:14px;"
             f"border:3px solid {baseline_ring};display:flex;align-items:center;"
             f"justify-content:center;font-size:{int(size * 0.6)}px;"
             f"background:#0e1117;opacity:0.65;margin:0 auto'>👤</div>"
         )
+
+    if now_src is not None:
         actual_face = (
-            f"<div style='width:{size}px;height:{size}px;border-radius:50%;"
+            f"<img src='{now_src}' style='width:{size}px;height:{size}px;"
+            f"border-radius:14px;object-fit:cover;"
+            f"border:{border_w}px solid {color};"
+            f"box-shadow:0 0 10px {color}'/>"
+        )
+    else:
+        actual_face = (
+            f"<div style='width:{size}px;height:{size}px;border-radius:14px;"
             f"border:{border_w}px solid {color};display:flex;align-items:center;"
             f"justify-content:center;font-size:{int(size * 0.6)}px;"
             f"background:#0e1117;box-shadow:0 0 10px {color};margin:0 auto'>"
@@ -344,7 +378,7 @@ def twin_avatar_block_html(
         f"<div style='font-size:0.6rem;color:#9aa0a6;margin-top:4px;"
         f"letter-spacing:1.5px'>BASELINE</div>"
         f"</div>"
-        f"<div style='color:{color};font-size:1.1rem;font-weight:bold;"
+        f"<div style='color:{color};font-size:1.2rem;font-weight:bold;"
         f"padding:0 2px'>→</div>"
         f"<div style='text-align:center'>"
         f"{actual_face}"
@@ -806,7 +840,12 @@ def _render_inflection_row(rank: int, r: dict) -> None:
         is_face = r["feature"] in _FACE_FEATURES
         if is_face:
             head_html = twin_avatar_block_html(
-                ss.avatar_bgr, r["peak_z"], color, size=56
+                inflection_peak_t=peak_t,
+                samples=ss.samples,
+                peak_z=r["peak_z"],
+                color=color,
+                fallback_avatar_bgr=ss.avatar_bgr,
+                size=80,
             )
         else:
             head_html = (
