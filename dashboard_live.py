@@ -1491,13 +1491,19 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
     b64 = base64.b64encode(buf.tobytes()).decode("ascii")
     src = f"data:image/png;base64,{b64}"
     baseline_tooltip = (
-        "Your enrolled normal — the statistical profile of how your face sits "
-        "when you're at rest. Not a single moment in time; the median + spread "
-        "of dozens of frames captured during enrollment."
+        "Your reference profile — what NOW is being compared against. "
+        "Two patterns are common: "
+        "(a) at-rest baseline — how your face sits when calm, captured before "
+        "any performance starts; "
+        "(b) prior-take baseline — a previous attempt at the same content "
+        "(an earlier elevator-pitch run, a yesterday's-keynote run) that you "
+        "now want to refine against. "
+        "Stored as the median + spread of dozens of enrollment frames."
     )
     now_tooltip = (
-        "Your face geometry at the moment of this nuance — the frame closest "
-        "to the peak of the detected deviation window."
+        "Your current take at the moment of this nuance — the frame closest "
+        "to the peak of the detected deviation window in the most recent "
+        "recording. Compared against whichever baseline you selected."
     )
     return (
         f"<div style='margin-top:8px;text-align:center'>"
@@ -1828,6 +1834,41 @@ def render_guide_tab() -> None:
         A "breach" is when T² goes past your σ-high threshold (default 6 σ).
         An "excursion" is between σ-low and σ-high.
 
+        #### Two ways to use this
+
+        The math is the same in both flows. What changes is **what you
+        enroll as the baseline**.
+
+        **A — Coaching against your at-rest self.**
+        Enroll a 30-second neutral-and-calm take as your baseline. Then
+        deliver the actual speech / interview answer. The system surfaces
+        nuances where you departed from rest — moments of stress, surprise,
+        concentration, fatigue.
+
+        ```
+        Record 30 s calm  →  Enroll as  julio_at_rest_en
+        Compare against   →  julio_at_rest_en
+        Record the pitch  →  Detect
+        ```
+
+        **B — Rehearsing against your prior take.**
+        Record attempt #1 of a 30-second elevator pitch, enroll it. Then
+        record attempt #2 against that enrollment. The system surfaces
+        where attempt #2 differs from attempt #1 — improvement, drift, a
+        more lopsided smile, a held brow that didn't show up before. This
+        is the iterative-rehearsal loop.
+
+        ```
+        Record attempt 1  →  Enroll as  pitch_attempt_1
+        Compare against   →  pitch_attempt_1
+        Record attempt 2  →  Detect  →  see what changed
+        Re-enroll best take  →  Compare against it next session
+        ```
+
+        Either way, the **NOW** in every nuance card is your most recent
+        recording. The **BASELINE** is whichever profile you pointed
+        "Compare against" at.
+
         #### Why per-subject + per-language baseline matters
 
         Western-population baselines smooth across millions of faces and
@@ -1916,11 +1957,12 @@ def render_sidebar() -> dict:
             options=["— none —"] + names,
             index=0,
             help=(
-                "Your enrolled BASELINE — the statistical profile of how your "
-                "face sits when you're at rest. Not a single moment; the "
-                "median + spread of dozens of frames from your enrollment "
-                "session. One baseline per language / per glasses-on-off "
-                "configuration is encouraged."
+                "Your reference profile — what NOW will be compared against. "
+                "Common patterns: at-rest baseline (your calm neutral state), "
+                "prior-take baseline (a previous run of the same elevator "
+                "pitch / keynote you want to refine against), per-language "
+                "baseline, per-glasses-configuration baseline. One enrolled "
+                "name per pattern is encouraged."
             ),
         )
         st.header("🎬  Recording")
@@ -1973,8 +2015,18 @@ def render_sidebar() -> dict:
         new_name = st.text_input(
             "Name for current samples",
             value="",
-            placeholder="e.g. julio_seated_english",
-            help="The label you'll pick from 'Compare against' next time.",
+            placeholder="e.g. julio_at_rest_en  or  pitch_attempt_1",
+            help=(
+                "The label you'll pick from 'Compare against' next time. "
+                "Naming patterns: \n"
+                "• julio_at_rest_en — your calm neutral, English\n"
+                "• julio_at_rest_es — your calm neutral, Spanish\n"
+                "• pitch_attempt_1 — first run of the 30-s elevator pitch\n"
+                "• pitch_attempt_5 — fifth run, ready to compare against #4\n"
+                "• keynote_opener_v1 — first take of the keynote opener\n"
+                "Re-enroll any time conditions change (glasses on/off, new "
+                "chair, new lighting)."
+            ),
         )
         if st.button("Enroll", use_container_width=True, key="enroll_baseline"):
             base = fit_baseline(ss.samples, std_floor=_LIVE_STD_FLOOR)
