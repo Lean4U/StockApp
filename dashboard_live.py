@@ -232,10 +232,15 @@ def _toggle_recording_via_command(cmd: str) -> None:
         if not ss.samples:
             ss.start_t = now
         ss.recording = True
+        # Mark the voice trigger so Detect can trim the head seconds
+        # contaminated by the spoken command + user hesitation.
+        ss.voice_record_at = now
+        ss.voice_stop_at = None
         if recorder.available:
             recorder.start(now)
     elif cmd == "stop" and ss.recording:
         ss.recording = False
+        ss.voice_stop_at = now
         if recorder.available and recorder.recording:
             recorder.stop()
 
@@ -875,6 +880,16 @@ def init_state() -> None:
     ss.setdefault("avatar_bgr", None)
     ss.setdefault("out_lang", "en")
     ss.setdefault("last_enrolled", None)
+    # Voice-trigger time stamps used to trim the first/last second(s)
+    # of the analyzed take so the spoken command word + any user
+    # hesitation right after detection doesn't contaminate Detect.
+    ss.setdefault("voice_record_at", None)
+    ss.setdefault("voice_stop_at", None)
+
+
+# How much voice-triggered head / tail to trim out of the analysed take.
+VOICE_HEAD_TRIM_S = 1.0
+VOICE_TAIL_TRIM_S = 0.5
 
 
 def crop_to_square(img: np.ndarray, size: int = 128) -> np.ndarray:
@@ -2423,6 +2438,8 @@ def render_sidebar() -> dict:
             ss.transcript = []
             ss.frame_thumbnails = OrderedDict()
             ss.active_baseline_key = None
+            ss.voice_record_at = None
+            ss.voice_stop_at = None
             if recorder.available:
                 recorder.clear()
             st.rerun()
@@ -2556,8 +2573,28 @@ def render_sidebar() -> dict:
                     cut_t = ss.samples[0].t + adapt_window_s
                     adapt_samples = [s for s in ss.samples if s.t <= cut_t]
                     base = adapt_baseline(base, adapt_samples)
+                # Voice-trigger trim — drop the head seconds polluted by
+                # the spoken 'record' word + the user repeating it /
+                # hesitating; drop the tail seconds polluted by 'stop'.
+                # Only applied when the take was actually voice-triggered.
+                samples_for_detect = ss.samples
+                if ss.voice_record_at and ss.start_t is not None:
+                    cut_in = (ss.voice_record_at - ss.start_t) + VOICE_HEAD_TRIM_S
+                    samples_for_detect = [
+                        s for s in samples_for_detect if s.t >= cut_in
+                    ]
+                if ss.voice_stop_at and ss.start_t is not None:
+                    cut_out = (ss.voice_stop_at - ss.start_t) - VOICE_TAIL_TRIM_S
+                    samples_for_detect = [
+                        s for s in samples_for_detect if s.t <= cut_out
+                    ]
+                # Fallback: if the trim left us with too few samples (e.g.
+                # the user spoke 'stop' almost immediately after 'record'),
+                # ignore the trim and run on the full buffer.
+                if len(samples_for_detect) < 10:
+                    samples_for_detect = ss.samples
                 report = detect_sigma_changes(
-                    ss.samples,
+                    samples_for_detect,
                     base,
                     sigma_low=sigma_low,
                     sigma_high=sigma_high,
@@ -2700,14 +2737,34 @@ def _render_recording_banner() -> None:
             elapsed = 0.0
             if ss.start_t is not None:
                 elapsed = max(0.0, time.time() - ss.start_t)
-            st.markdown(
-                f"<div class='syntonia-banner rec'>"
-                f"<span class='syntonia-rec-dot'></span>"
-                f"RECORDING · {elapsed:0.1f} s · "
-                f"{len(ss.samples)} frames"
-                f"</div>",
-                unsafe_allow_html=True,
+            # During the voice-trigger head-trim window, tell the user
+            # the first second is being dropped from analysis — settles
+            # them and explains away the head-spike.
+            settling = (
+                ss.voice_record_at is not None
+                and (time.time() - ss.voice_record_at) < VOICE_HEAD_TRIM_S
             )
+            if settling:
+                grace_remaining = max(
+                    0.0, VOICE_HEAD_TRIM_S - (time.time() - ss.voice_record_at)
+                )
+                st.markdown(
+                    f"<div class='syntonia-banner rec'>"
+                    f"<span class='syntonia-rec-dot'></span>"
+                    f"RECORDING · SETTLING ({grace_remaining:0.1f} s) — "
+                    f"analysis starts after this — sit still"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div class='syntonia-banner rec'>"
+                    f"<span class='syntonia-rec-dot'></span>"
+                    f"RECORDING · {elapsed:0.1f} s · "
+                    f"{len(ss.samples)} frames"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
         else:
             n = len(ss.samples)
             if n > 0:
