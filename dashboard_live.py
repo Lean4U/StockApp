@@ -253,6 +253,50 @@ def init_state() -> None:
     ss.setdefault("frame_thumbnails", OrderedDict())
     ss.setdefault("active_baseline_key", None)
     ss.setdefault("selected_event_idx", 0)
+    ss.setdefault("avatar_bgr", None)
+
+
+def crop_to_square(img: np.ndarray, size: int = 128) -> np.ndarray:
+    """Center-crop to square, then resize to ``size`` × ``size``."""
+    h, w = img.shape[:2]
+    s = min(h, w)
+    top = (h - s) // 2
+    left = (w - s) // 2
+    sq = img[top:top + s, left:left + s]
+    return cv2.resize(sq, (size, size), interpolation=cv2.INTER_AREA)
+
+
+def avatar_html(avatar_bgr: Optional[np.ndarray], size: int = 84) -> str:
+    """Encode a BGR ndarray as an inline base64 PNG <img> tag, rounded."""
+    if avatar_bgr is None:
+        return ""
+    ok, buf = cv2.imencode(".png", avatar_bgr)
+    if not ok:
+        return ""
+    import base64
+    b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+    return (
+        f"<img src='data:image/png;base64,{b64}' "
+        f"style='width:{size}px;height:{size}px;border-radius:50%;"
+        f"object-fit:cover;display:block;margin:0 auto;"
+        f"border:2px solid #2a2f3a'/>"
+    )
+
+
+# Feature names whose icon should swap for the user's avatar when one is set.
+_FACE_FEATURES = {
+    "left_brow_height_norm",
+    "right_brow_height_norm",
+    "angle_LM",
+    "angle_RM",
+    "mouth_offset_norm",
+    "mouth_line_norm",
+    "side_mouth_norm",
+    "side_left_norm",
+    "side_right_norm",
+    "angle_LE",
+    "angle_RE",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -687,11 +731,19 @@ def _render_inflection_row(rank: int, r: dict) -> None:
         glyph, side_label = FEATURE_GLYPH.get(r["feature"], ("◉", ""))
         severity = severity_word(r["peak_z"])
         bars_html = severity_bar_html(r["peak_z"], color)
+        # Avatar replaces the emoji on face-region features when one is set.
+        use_avatar = ss.avatar_bgr is not None and r["feature"] in _FACE_FEATURES
+        if use_avatar:
+            head_html = avatar_html(ss.avatar_bgr, size=84)
+        else:
+            head_html = (
+                f"<div style='font-size:2.6rem;line-height:1'>{glyph}</div>"
+            )
         st.markdown(
             f"<div style='text-align:center;padding-top:6px'>"
-            f"<div style='font-size:2.6rem;line-height:1'>{glyph}</div>"
+            f"{head_html}"
             f"<div style='font-size:0.72rem;color:{color};font-weight:bold;"
-            f"letter-spacing:1px;margin-top:4px'>{side_label}</div>"
+            f"letter-spacing:1px;margin-top:6px'>{side_label}</div>"
             f"<div style='margin-top:8px'>{bars_html}</div>"
             f"<div style='font-size:0.7rem;color:#9aa0a6;margin-top:6px;"
             f"text-transform:uppercase;letter-spacing:1.5px'>"
@@ -830,6 +882,52 @@ def render_sidebar() -> dict:
     with st.sidebar:
         st.header("Camera")
         camera_idx = st.number_input("Camera index", 0, 4, 0, step=1)
+
+        st.header("Avatar")
+        st.caption(
+            "Optional. Replaces the neutral silhouette next to each ranked "
+            "inflection. Stays local — never uploaded anywhere."
+        )
+        uploaded = st.file_uploader(
+            "Upload a headshot (PNG / JPG)",
+            type=["png", "jpg", "jpeg"],
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            data = uploaded.read()
+            arr = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is not None:
+                ss.avatar_bgr = crop_to_square(img)
+                st.success("Avatar set.")
+        avatar_cols = st.columns(2)
+        with avatar_cols[0]:
+            if st.button(
+                "📷 Snap from webcam",
+                use_container_width=True,
+                help="Grab the current webcam frame and use it as your avatar.",
+            ):
+                snap_cap = get_camera(int(camera_idx))
+                ok, frame = snap_cap.read()
+                if ok:
+                    ss.avatar_bgr = crop_to_square(frame)
+                    st.success("Avatar set from webcam.")
+                else:
+                    st.error("Could not read from the webcam.")
+        with avatar_cols[1]:
+            if st.button(
+                "Clear avatar",
+                use_container_width=True,
+                disabled=ss.avatar_bgr is None,
+            ):
+                ss.avatar_bgr = None
+                st.rerun()
+        if ss.avatar_bgr is not None:
+            st.image(
+                cv2.cvtColor(ss.avatar_bgr, cv2.COLOR_BGR2RGB),
+                width=96,
+                caption="Current avatar",
+            )
 
         st.header("Baseline")
         names = list(ss.signatures.keys())
