@@ -79,28 +79,34 @@ CATEGORY_PALETTE = {
 }
 
 # Visual descriptors for each feature: (pictograph, side-asymmetry label).
-# Drives the icon column on the Insights ranked list — no numbers, just a
-# glyph + direction + severity bars.
+# All face-region features use the neutral bust-silhouette (👤) — no race,
+# no gender, no expression baked in. Pose and geometric features use
+# directional / mathematical glyphs. The side label below the glyph carries
+# the directional asymmetry; the four-pip bar carries severity.
 FEATURE_GLYPH: Dict[str, tuple] = {
-    "left_brow_height_norm":  ("🤨", "◀ LEFT"),
-    "right_brow_height_norm": ("🤨", "RIGHT ▶"),
-    "angle_LM":               ("😉", "◀ LEFT mouth"),
-    "angle_RM":               ("😉", "RIGHT mouth ▶"),
-    "mouth_offset_norm":      ("🙃", "off-centre"),
-    "mouth_line_norm":        ("😮", "wide"),
-    "side_mouth_norm":        ("😮", "wide"),
-    "side_left_norm":         ("↔", "◀ LEFT side"),
-    "side_right_norm":        ("↔", "RIGHT side ▶"),
-    "yaw_proxy":              ("🔄", "◀ turn ▶"),
+    # Face-behavioural
+    "left_brow_height_norm":  ("👤", "◀ LEFT brow"),
+    "right_brow_height_norm": ("👤", "RIGHT brow ▶"),
+    "angle_LM":               ("👤", "◀ LEFT mouth corner"),
+    "angle_RM":               ("👤", "RIGHT mouth corner ▶"),
+    "mouth_offset_norm":      ("👤", "mouth off-centre"),
+    "mouth_line_norm":        ("👤", "mouth width"),
+    "side_mouth_norm":        ("👤", "mouth width"),
+    # Trapezium-side and eye geometry
+    "side_left_norm":         ("👤", "◀ LEFT side"),
+    "side_right_norm":        ("👤", "RIGHT side ▶"),
+    "side_eye_norm":          ("👓", "eye line / glasses"),
+    "eye_line_norm":          ("👓", "eye line / glasses"),
+    "angle_LE":               ("👤", "◀ LEFT eye corner"),
+    "angle_RE":               ("👤", "RIGHT eye corner ▶"),
+    # Pose (head pose proxies)
+    "yaw_proxy":              ("🔄", "◀ head turn ▶"),
     "pitch_proxy":            ("↕", "▲ chin ▼"),
-    "roll_proxy":             ("⤵", "tilt"),
-    "side_eye_norm":          ("👓", "eye line"),
-    "eye_line_norm":          ("👓", "eye line"),
-    "angle_LE":               ("👁", "◀ LEFT eye"),
-    "angle_RE":               ("👁", "RIGHT eye ▶"),
-    "diag_LE_RM_norm":        ("⟍", "LE → RM diag"),
-    "diag_RE_LM_norm":        ("⟋", "RE → LM diag"),
-    "diag_ratio":             ("⚖", "diag balance"),
+    "roll_proxy":             ("⤵", "head tilt"),
+    # Geometric (no face)
+    "diag_LE_RM_norm":        ("⟍", "LE → RM diagonal"),
+    "diag_RE_LM_norm":        ("⟋", "RE → LM diagonal"),
+    "diag_ratio":             ("⚖", "diagonal balance"),
     "eye_mouth_ratio":        ("📏", "vertical proportion"),
     "parallelism_residual":   ("⊥", "non-parallel"),
 }
