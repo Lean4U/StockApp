@@ -476,17 +476,9 @@ def render_insights_tab() -> None:
     events = summary.get("events", [])
     rows = aggregate_unique_inflections(events)
 
-    # Headline numbers.
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Take duration", f"{summary['duration_s']:.1f} s")
-    c2.metric("Peak T²", f"{summary['max_t2_sigma']:.1f} σ")
-    c3.metric("Unique features fired", len(rows))
-    c4.metric("Behavioural rows", sum(1 for r in rows if r["category"] == "behavioural"))
-
     if ss.active_baseline_key:
         st.caption(f"Baseline: **{ss.active_baseline_key}**")
 
-    # Narrative paragraph.
     if not events:
         st.success(
             "Stable take. No feature crossed σ-low. Your face stayed within "
@@ -494,82 +486,12 @@ def render_insights_tab() -> None:
         )
         return
 
-    top = rows[0]
-    fx_top = explain(top["feature"])
-    st.markdown(
-        f"#### The story of this take\n"
-        f"Across **{summary['duration_s']:.1f} seconds**, the biggest "
-        f"single signal came from **{fx_top.short}** — {fx_top.physical} "
-        f"It carried **{top['weight_pct']:.0f}%** of the session's total "
-        f"weight ({top['total_dur']:.1f} s above baseline, peak "
-        f"{top['peak_z']:.1f} σ)."
-    )
-
-    # Two-column: donut + summary breakdown
-    col_donut, col_breakdown = st.columns([1, 1])
-    with col_donut:
-        st.markdown("**Where the weight went**")
-        st.altair_chart(category_donut(rows), use_container_width=True)
-    with col_breakdown:
-        st.markdown("**By category**")
-        bucket = {"behavioural": 0.0, "pose": 0.0, "hardware": 0.0, "other": 0.0}
-        for r in rows:
-            bucket[r["category"]] += r["weight_pct"]
-        for cat in ("behavioural", "pose", "hardware"):
-            w = bucket[cat]
-            st.markdown(
-                f"<div style='border-left:5px solid {CATEGORY_PALETTE[cat]};"
-                f"padding:6px 10px;margin-bottom:8px;background:#0e1117'>"
-                f"<b>{CATEGORY_LABEL[cat]}</b> &nbsp; "
-                f"<span style='color:{CATEGORY_PALETTE[cat]};font-weight:bold'>"
-                f"{w:.0f}%</span>"
-                f"<div style='font-size:0.85rem;color:#9aa0a6'>"
-                f"{CATEGORY_DESCRIPTION[cat]}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-    # Interactive timeline.
-    st.markdown("#### Timeline — click a bar to see the moment")
-    chart_event = st.altair_chart(
-        interactive_timeline(rows, events),
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="picked",
-        key="timeline_chart",
-    )
-
-    # Selected moment detail (clip + transcript + plain language).
-    selected_t: Optional[float] = None
-    selected_feature: Optional[str] = None
-    picked = (chart_event.selection or {}).get("picked") if chart_event else None
-    if picked:
-        sel = picked[0]
-        # The Altair selection echoes the bound fields back; we matched on
-        # feature_short, so the time mid-point comes from the picked row.
-        short = sel.get("feature_short")
-        for e in events:
-            if explain(e["dominant_feature"]).short == short:
-                selected_t = 0.5 * (e["start_t"] + e["end_t"])
-                for r in rows:
-                    if explain(r["feature"]).short == short:
-                        selected_feature = r["feature"]
-                        break
-                break
-
-    if selected_feature is None and rows:
-        selected_feature = rows[0]["feature"]
-        selected_t = 0.5 * (rows[0]["best_event"]["start_t"] + rows[0]["best_event"]["end_t"])
-
-    if selected_feature is not None and selected_t is not None:
-        _render_moment(selected_feature, selected_t)
-
-    # Ranked unique inflections.
-    st.markdown("#### Ranked unique inflection points")
+    st.markdown("### Ranked unique inflection points")
     st.caption(
         "One row per distinct feature, sorted by impact (duration × peak σ). "
         "No duplicates: each feature appears once with its peak frame."
     )
+
     for i, r in enumerate(rows[:8]):
         _render_inflection_row(i + 1, r)
 
@@ -631,18 +553,32 @@ def _render_moment(feature: str, t: float) -> None:
 
 
 def _render_inflection_row(rank: int, r: dict) -> None:
+    ss = st.session_state
     fx = explain(r["feature"])
     cat = r["category"]
     color = CATEGORY_PALETTE[cat]
     label = CATEGORY_LABEL[cat]
-    cols = st.columns([1, 6, 2])
+    best = r["best_event"]
+    peak_t = 0.5 * (best["start_t"] + best["end_t"])
+    thumb = thumbnail_at_time(peak_t, ss.samples)
+
+    cols = st.columns([1, 3, 7, 2])
     with cols[0]:
         st.markdown(
             f"<div style='font-size:1.8rem;font-weight:bold;color:{color};"
-            f"text-align:center'>#{rank}</div>",
+            f"text-align:center;padding-top:14px'>#{rank}</div>",
             unsafe_allow_html=True,
         )
     with cols[1]:
+        if thumb is not None:
+            st.image(
+                cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB),
+                caption=f"close-up · t ≈ {peak_t:.2f} s",
+                use_container_width=True,
+            )
+        else:
+            st.caption("(no close-up frame captured for this moment)")
+    with cols[2]:
         st.markdown(
             f"**{fx.short}** &nbsp;"
             f"<span style='background:{color};color:white;padding:1px 8px;"
@@ -667,6 +603,17 @@ def _render_inflection_row(rank: int, r: dict) -> None:
                 f"A question to sit with: {fx.socratic}</div>",
                 unsafe_allow_html=True,
             )
+        if ss.transcript:
+            spoken = text_within(ss.transcript, best["start_t"], best["end_t"])
+            if spoken:
+                st.markdown(
+                    f"<div style='color:#dde6f1;font-size:0.88rem;margin-top:6px;"
+                    f"padding:6px 10px;background:#101820;"
+                    f"border-left:3px solid #4dabf7;border-radius:4px;"
+                    f"font-style:italic'>"
+                    f"What you said: “{spoken}”</div>",
+                    unsafe_allow_html=True,
+                )
         st.markdown(
             f"<div style='color:#6c757d;font-size:0.75rem;margin-top:6px'>"
             f"first at {r['earliest_start']:.2f}s · "
@@ -674,9 +621,9 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             f"{r['n_events']} window(s) · peak {r['peak_z']:.1f} σ</div>",
             unsafe_allow_html=True,
         )
-    with cols[2]:
+    with cols[3]:
         st.markdown(
-            f"<div style='text-align:right'>"
+            f"<div style='text-align:right;padding-top:14px'>"
             f"<div style='font-size:1.6rem;font-weight:bold;color:{color}'>"
             f"{r['weight_pct']:.0f}%</div>"
             f"<div style='font-size:0.75rem;color:#9aa0a6'>"
@@ -684,7 +631,7 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             unsafe_allow_html=True,
         )
     st.markdown(
-        "<hr style='margin:8px 0;border:none;border-top:1px solid #2a2f3a'>",
+        "<hr style='margin:10px 0;border:none;border-top:1px solid #2a2f3a'>",
         unsafe_allow_html=True,
     )
 
