@@ -1025,7 +1025,7 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
     df_events = pd.DataFrame(
         [
             {
-                "feature_short": explain(e["dominant_feature"]).short,
+                "feature_short": explain(e["dominant_feature"], st.session_state.get("out_lang", "en")).short,
                 "feature": e["dominant_feature"],
                 "category": CATEGORY_LABEL[category(e["dominant_feature"])],
                 "start_t": e["start_t"],
@@ -1038,7 +1038,7 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
             for e in events
         ]
     )
-    order = [explain(r["feature"]).short for r in rows]
+    order = [explain(r["feature"], st.session_state.get("out_lang", "en")).short for r in rows]
     color_scale = alt.Scale(
         domain=[CATEGORY_LABEL[k] for k in CATEGORY_PALETTE],
         range=list(CATEGORY_PALETTE.values()),
@@ -1082,11 +1082,12 @@ def interactive_timeline(rows: List[dict], events: List[dict]) -> alt.Chart:
 def status_caption(
     t2_peak: float, sigma_low: float, sigma_high: float
 ) -> str:
+    lang = st.session_state.get("out_lang", "en")
     if t2_peak >= sigma_high:
-        return "🔴 **Out of norm** — your face is significantly off baseline."
+        return t("status.out_of_norm", lang)
     if t2_peak >= sigma_low:
-        return "🟠 **Excursion** — something is shifting."
-    return "🟢 **Stable** — you're within your baseline envelope."
+        return t("status.excursion", lang)
+    return t("status.stable", lang)
 
 
 def quick_story_line(summary: dict) -> str:
@@ -1099,7 +1100,7 @@ def quick_story_line(summary: dict) -> str:
     if not rows:
         return ""
     top = rows[0]
-    fx = explain(top["feature"])
+    fx = explain(top["feature"], st.session_state.get("out_lang", "en"))
     return (
         f"Top inflection: **{fx.short}** "
         f"({CATEGORY_LABEL[top['category']]}) — "
@@ -1323,7 +1324,7 @@ def render_mobile_tab() -> None:
 
 def _render_mobile_card(rank: int, r: dict) -> None:
     ss = st.session_state
-    fx = explain(r["feature"])
+    fx = explain(r["feature"], st.session_state.get("out_lang", "en"))
     cat = r["category"]
     color = CATEGORY_PALETTE[cat]
     label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
@@ -1453,7 +1454,7 @@ def _render_mobile_card(rank: int, r: dict) -> None:
             "letter-spacing:2px;text-transform:uppercase;text-align:center;"
             "font-weight:800'>"
             f"{t('section.over_time', lang)} · "
-            + explain(r["feature"]).short
+            + explain(r["feature"], lang).short
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -1648,7 +1649,7 @@ def render_insights_tab() -> None:
 
 def _render_moment(feature: str, t: float) -> None:
     ss = st.session_state
-    fx = explain(feature)
+    fx = explain(feature, st.session_state.get("out_lang", "en"))
     cat = category(feature)
     color = CATEGORY_PALETTE[cat]
     label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
@@ -1705,7 +1706,7 @@ def _render_moment(feature: str, t: float) -> None:
 
 def _render_inflection_row(rank: int, r: dict) -> None:
     ss = st.session_state
-    fx = explain(r["feature"])
+    fx = explain(r["feature"], st.session_state.get("out_lang", "en"))
     cat = r["category"]
     color = CATEGORY_PALETTE[cat]
     label = t(f"cat.{cat}", st.session_state.get("out_lang", "en"))
@@ -1770,9 +1771,7 @@ def _render_inflection_row(rank: int, r: dict) -> None:
             st.markdown(
                 f"<div style='color:#404040;font-size:0.8rem;margin-top:2px;"
                 f"font-style:italic'>"
-                f"Your answer separates <b>context</b> (head pose, lighting, "
-                f"posture drift — absorbable by the adaptive baseline) from "
-                f"<b>behaviour</b> (a deliberate expression worth noticing).</div>",
+                f"{t('implication.html', st.session_state.get('out_lang','en'))}</div>",
                 unsafe_allow_html=True,
             )
         if ss.transcript:

@@ -367,10 +367,12 @@ POSE_FEATURES = {
 }
 
 
-def explain(feature: str) -> FeatureExplanation:
-    """Return the FeatureExplanation for a feature name, with a generic
-    fallback so unknown features never crash the dashboard."""
-    return _GLOSSARY.get(
+def explain(feature: str, lang: str = "en") -> FeatureExplanation:
+    """Return the FeatureExplanation for a feature name, in the user's
+    output language when available. Falls back to English per-field if
+    a translation isn't registered yet.
+    """
+    en_entry = _GLOSSARY.get(
         feature,
         FeatureExplanation(
             short=feature,
@@ -379,6 +381,250 @@ def explain(feature: str) -> FeatureExplanation:
             socratic="Notice this moment — what were you doing?",
         ),
     )
+    if lang == "en" or lang not in _LOCALIZED_GLOSSARY:
+        return en_entry
+    loc = _LOCALIZED_GLOSSARY[lang].get(feature)
+    if loc is None:
+        return en_entry
+    # Merge: prefer localized fields, fall back to English per-field.
+    return FeatureExplanation(
+        short=loc.get("short", en_entry.short),
+        physical=loc.get("physical", en_entry.physical),
+        candidates=loc.get("candidates", en_entry.candidates),
+        citation=loc.get("citation", en_entry.citation),
+        science_summary=loc.get("science_summary", en_entry.science_summary),
+        socratic=loc.get("socratic", en_entry.socratic),
+    )
+
+
+# Localized field overrides per language. Each entry is feature_name →
+# dict of optional field overrides. Unset fields fall back to English.
+_LOCALIZED_GLOSSARY: Dict[str, Dict[str, dict]] = {
+    "es": {
+        "left_brow_height_norm": {
+            "short": "Elevación de ceja izquierda",
+            "physical": "Distancia vertical desde el punto de la ceja izquierda hasta el rabillo exterior del ojo izquierdo.",
+            "candidates": [
+                "Sorpresa / levantamiento de cejas (FACS AU 1 + AU 2)",
+                "Fruncimiento de concentración si va hacia abajo",
+                "Levantamiento asimétrico (solo un lado)",
+            ],
+            "citation": "Ekman y Friesen — FACS AU 1 (Elevador interno de ceja) y AU 2 (Elevador externo de ceja).",
+            "science_summary": "El destello de cejas — ambas cejas arriba durante unos 200 ms — es una señal transcultural de atención o reconocimiento. Un levantamiento unilateral suele ser una pregunta, una verificación o escepticismo.",
+            "socratic": "¿Estabas sorprendido, concentrándote o formulando una pregunta?",
+        },
+        "right_brow_height_norm": {
+            "short": "Elevación de ceja derecha",
+            "physical": "Distancia vertical desde el punto de la ceja derecha hasta el rabillo exterior del ojo derecho.",
+            "candidates": [
+                "Sorpresa / levantamiento de cejas (FACS AU 1 + AU 2)",
+                "Fruncimiento de concentración si va hacia abajo",
+                "Levantamiento asimétrico (solo un lado)",
+            ],
+            "citation": "Ekman y Friesen — FACS AU 1 / AU 2.",
+            "science_summary": "El destello de cejas — ambas cejas arriba durante unos 200 ms — es una señal transcultural de atención o reconocimiento. Un levantamiento unilateral suele ser una pregunta, una verificación o escepticismo.",
+            "socratic": "¿Estabas sorprendido, concentrándote o formulando una pregunta?",
+        },
+        "angle_LM": {
+            "short": "Ángulo interior de la comisura izquierda",
+            "physical": "Ángulo interior del trapecio en la comisura izquierda de la boca.",
+            "candidates": [
+                "Sonrisa que tira la comisura izquierda hacia arriba y atrás",
+                "Movimiento bucal asimétrico (sonrisa torcida, media sonrisa)",
+                "Compresión del labio izquierdo",
+            ],
+            "citation": "Delor et al. 2021 — la asimetría facial predice los juicios de autenticidad (Frontiers in Psychology 12, 727446).",
+            "science_summary": "Cuando una comisura de la sonrisa se mueve más que la otra, la sonrisa parece genuina. Las sonrisas perfectamente simétricas a menudo parecen actuadas o forzadas.",
+            "socratic": "¿Fue la expresión asimétrica aquí — un lado moviéndose más que el otro?",
+        },
+        "angle_RM": {
+            "short": "Ángulo interior de la comisura derecha",
+            "physical": "Ángulo interior del trapecio en la comisura derecha de la boca.",
+            "candidates": [
+                "Sonrisa que tira la comisura derecha hacia arriba y atrás",
+                "Movimiento bucal asimétrico (sonrisa torcida, media sonrisa)",
+                "Habla de fonemas específicos que tiran de la comisura derecha",
+            ],
+            "citation": "Delor et al. 2021 — la asimetría facial predice los juicios de autenticidad (Frontiers in Psychology 12, 727446).",
+            "science_summary": "Cuando una comisura de la sonrisa se mueve más que la otra, la sonrisa parece genuina. Las sonrisas perfectamente simétricas a menudo parecen actuadas o forzadas.",
+            "socratic": "¿Movió un lado de tu boca más que el otro?",
+        },
+        "mouth_offset_norm": {
+            "short": "Desplazamiento horizontal de la boca desde el centroide",
+            "physical": "Cuánto se ha desplazado el punto medio de la boca a la izquierda o derecha respecto al centro del cuadrilátero ojo-boca.",
+            "candidates": [
+                "Sonrisa o mueca asimétrica",
+                "Movimiento labial unilateral (al pronunciar fonemas específicos)",
+                "Media mueca / labios fruncidos",
+            ],
+            "citation": "Delor et al. 2021 — los movimientos asimétricos de la boca son el único indicador visible más confiable de sonrisa forzada vs espontánea.",
+            "science_summary": "El desplazamiento de la boca desde la línea media facial es el indicador único más fuerte de si una sonrisa es espontánea: las sonrisas espontáneas son visiblemente asimétricas, las forzadas no.",
+            "socratic": "¿Tiró la expresión más hacia un lado que hacia el otro?",
+        },
+        "side_mouth_norm": {
+            "short": "Anchura de la boca",
+            "physical": "Longitud de la línea de la boca relativa al resto del trapecio. Captura la apertura lateral, que difiere sistemáticamente entre idiomas con vocales más abiertas (español /a/, /e/, /o/) y los más redondeados (vocales posteriores del inglés).",
+            "candidates": [
+                "Hablar un idioma con vocales abiertas más amplias",
+                "Sonrisa amplia",
+                "Boca muy abierta (risa, sorpresa amplia)",
+            ],
+            "socratic": "¿Estabas cambiando de idioma o produciendo vocales bien abiertas?",
+        },
+        "side_left_norm": {
+            "short": "Lado izquierdo del trapecio (ojo izq → boca izq)",
+            "physical": "Distancia vertical entre el rabillo exterior del ojo izquierdo y la comisura izquierda de la boca, normalizada por la escala del rostro.",
+            "candidates": [
+                "Giro de cabeza a la derecha (el lado izquierdo se estira en proyección)",
+                "Elevación del pómulo izquierdo (sonrisa que tira hacia arriba)",
+                "Caída de mandíbula del lado izquierdo",
+            ],
+            "socratic": "¿Estabas cambiando el peso en la silla?",
+        },
+        "side_right_norm": {
+            "short": "Lado derecho del trapecio (ojo der → boca der)",
+            "physical": "Distancia vertical entre el rabillo exterior del ojo derecho y la comisura derecha de la boca, normalizada por la escala del rostro.",
+            "candidates": [
+                "Giro de cabeza a la izquierda (el lado derecho se estira en proyección)",
+                "Elevación del pómulo derecho (sonrisa que tira hacia arriba)",
+                "Caída de mandíbula del lado derecho",
+            ],
+            "socratic": "¿Estabas girándote hacia algo en la pantalla?",
+        },
+        "yaw_proxy": {
+            "short": "Giro de cabeza (izquierda ↔ derecha)",
+            "physical": "Proxy geométrico para la rotación de cabeza alrededor del eje vertical, derivado de los anchos relativos de los dos lados del trapecio.",
+            "candidates": [
+                "Mirar a la izquierda o derecha en la pantalla",
+                "Girarte hacia alguien que te habla",
+                "Leer a través de un pasaje ancho",
+            ],
+            "socratic": "¿Estabas escaneando tu pantalla aquí?",
+        },
+        "pitch_proxy": {
+            "short": "Inclinación de cabeza (mentón arriba ↔ abajo)",
+            "physical": "Proxy geométrico para la inclinación de cabeza alrededor del eje horizontal, derivado de la desviación de la relación ojo-boca respecto a la mediana.",
+            "candidates": [
+                "Mirar hacia abajo a texto o notas",
+                "Levantar el mentón mientras se piensa",
+                "Cambió la altura de la silla del sujeto",
+            ],
+            "socratic": "¿Estabas mirando hacia abajo a un párrafo, o hacia arriba a la cámara?",
+        },
+        "roll_proxy": {
+            "short": "Inclinación lateral de la cabeza",
+            "physical": "Proxy geométrico para la inclinación de cabeza alrededor del eje frontal (oreja hacia hombro).",
+            "candidates": [
+                "Inclinación casual de cabeza (curiosidad, escuchando)",
+                "Deriva postural",
+                "El sujeto se apoyó en un codo",
+            ],
+            "socratic": "¿Estabas inclinando la cabeza hacia un lado aquí?",
+        },
+        "eye_mouth_ratio": {
+            "short": "Proporción línea-ojo / línea-boca",
+            "physical": "Proporción vertical entre la línea del ojo y la línea de la boca. Cambia cuando la cabeza se inclina arriba o abajo, o cuando la boca se abre más.",
+            "candidates": [
+                "Mentón inclinado arriba o abajo (leyendo texto en pantalla)",
+                "Boca abierta más amplia (vocal abierta, sorpresa, bostezo)",
+                "El sujeto se inclinó hacia adelante o atrás",
+            ],
+            "socratic": "¿Estabas leyendo de la pantalla, mirando abajo o arriba?",
+        },
+        "diag_ratio": {
+            "short": "Proporción de asimetría diagonal",
+            "physical": "Proporción de las dos diagonales del trapecio. Un rostro perfectamente simétrico mirando de frente tiene proporción cercana a 1.0. Cualquier desviación significa que el rostro ya no se proyecta simétricamente en la cámara.",
+            "candidates": [
+                "Giro de cabeza (girando hacia un lado)",
+                "Expresión facial asimétrica (una mejilla se eleva más que la otra)",
+                "Cambió el ángulo de la cámara",
+            ],
+            "citation": "Delor et al. 2021 (asimetría → autenticidad).",
+            "science_summary": "La asimetría diagonal de la cara cambia en microsegundos cuando la emoción es genuina. Las expresiones forzadas tienden a mantener las diagonales balanceadas.",
+            "socratic": "¿Estaba tu cabeza apuntando directamente a la cámara aquí?",
+        },
+        "parallelism_residual": {
+            "short": "Residual de paralelismo ojo-boca",
+            "physical": "Cuán no paralelas son la línea de los ojos y la línea de la boca. Captura la inclinación de cabeza independientemente de la distancia a la cámara.",
+            "candidates": [
+                "Cabeza inclinada arriba o abajo",
+                "Caída de mandíbula (labio inferior moviéndose abajo independientemente de la cabeza)",
+                "Inclinación de cejas independiente de la boca",
+            ],
+            "socratic": "¿Estabas asintiendo aquí, o mirando a otra parte de la pantalla?",
+        },
+        "angle_LE": {
+            "short": "Ángulo interior del ojo izquierdo",
+            "physical": "Ángulo interior del trapecio en el rabillo exterior del ojo izquierdo.",
+            "candidates": [
+                "Inclinación de cabeza (mentón arriba/abajo) reproyectando el lado izquierdo",
+                "Fruncimiento o entrecierre izquierdo",
+                "Borde de las gafas interfiriendo con el punto de referencia",
+            ],
+            "socratic": "¿Inclinaste ligeramente la cabeza aquí?",
+        },
+        "angle_RE": {
+            "short": "Ángulo interior del ojo derecho",
+            "physical": "Ángulo interior del trapecio en el rabillo exterior del ojo derecho.",
+            "candidates": [
+                "Inclinación de cabeza (mentón arriba/abajo) reproyectando el lado derecho",
+                "Fruncimiento o entrecierre derecho",
+                "Borde de las gafas interfiriendo con el punto de referencia",
+            ],
+            "socratic": "¿Inclinaste ligeramente la cabeza aquí?",
+        },
+        "side_eye_norm": {
+            "short": "Compresión del lado del ojo",
+            "physical": "La longitud de la línea del ojo relativa al resto del trapecio. Muy sensible a la posición de las monturas de gafas sobre el puente de la nariz.",
+            "candidates": [
+                "Las gafas se asentaron en una posición diferente",
+                "Cambió la distancia a la webcam",
+                "Inclinación persistente de cabeza hacia/desde la cámara",
+            ],
+            "socratic": "¿Están tus gafas en una posición diferente que cuando hiciste la inscripción?",
+        },
+        "eye_line_norm": {
+            "short": "Longitud de la línea del ojo (normalizada)",
+            "physical": "Distancia horizontal entre los rabillos exteriores de los ojos izquierdo y derecho, escalada por el tamaño total de la cara.",
+            "candidates": [
+                "Inclinación de cabeza hacia/desde la cámara",
+                "Entrecerrar los ojos (rabillos jalados hacia la nariz)",
+                "Las gafas están en una posición diferente",
+            ],
+            "socratic": "¿Te inclinaste hacia o lejos de la pantalla en este momento?",
+        },
+        "mouth_line_norm": {
+            "short": "Longitud de la línea de la boca (normalizada)",
+            "physical": "Distancia horizontal entre las comisuras izquierda y derecha de la boca.",
+            "candidates": [
+                "Boca bien abierta (risa, sorpresa, vocal amplia)",
+                "Labios fruncidos (vocal redondeada, vacilación)",
+                "Expresión asimétrica que jala una comisura lateralmente",
+            ],
+            "socratic": "¿Qué estabas diciendo — y cuán amplia abriste la boca para decirlo?",
+        },
+        "diag_LE_RM_norm": {
+            "short": "Diagonal del trapecio LE → RM",
+            "physical": "Longitud de la diagonal del trapecio desde el rabillo exterior del ojo izquierdo a la comisura derecha de la boca.",
+            "candidates": [
+                "Giro de cabeza (girando a la derecha)",
+                "Asimetría facial diagonal — ceja izquierda arriba + boca derecha abajo, o viceversa",
+                "Mentón arriba + mirada lateral combinada",
+            ],
+            "socratic": "¿Echaste un vistazo a un lado?",
+        },
+        "diag_RE_LM_norm": {
+            "short": "Diagonal del trapecio RE → LM",
+            "physical": "Longitud de la diagonal del trapecio desde el rabillo exterior del ojo derecho a la comisura izquierda de la boca.",
+            "candidates": [
+                "Giro de cabeza (girando a la izquierda)",
+                "Asimetría facial diagonal",
+                "Mentón arriba + mirada lateral combinada",
+            ],
+            "socratic": "¿Echaste un vistazo a un lado?",
+        },
+    },
+}
 
 
 def category(feature: str) -> str:

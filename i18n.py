@@ -67,6 +67,23 @@ _T: Dict[str, Dict[str, str]] = {
         "btn.record":          "Record ▶",
         "btn.stop":            "Stop ■",
         "btn.detect":          "Detect events vs selected baseline",
+        "implication.html":    (
+            "Your answer separates <b>context</b> (head pose, lighting, "
+            "posture drift — absorbable by the adaptive baseline) from "
+            "<b>behaviour</b> (a deliberate expression worth noticing)."
+        ),
+        "status.out_of_norm":  "🔴 **Out of norm** — your face is significantly off baseline.",
+        "status.excursion":    "🟠 **Excursion** — something is shifting.",
+        "status.stable":       "🟢 **Stable** — you're within your baseline envelope.",
+        "transcript.silence":  "_(silence around this moment)_",
+        "msg.stable_take":     (
+            "Stable take. No feature crossed the watch line. Your face "
+            "stayed within the geometric envelope of your baseline."
+        ),
+        "spider.subtitle":     (
+            "each spoke is one geometric dimension; the green ring is your "
+            "stable zone, the red ring is the out-of-norm threshold"
+        ),
     },
     "es": {
         "label.baseline":      "LÍNEA BASE",
@@ -96,6 +113,24 @@ _T: Dict[str, Dict[str, str]] = {
         "btn.record":          "Grabar ▶",
         "btn.stop":            "Parar ■",
         "btn.detect":          "Detectar eventos vs línea base seleccionada",
+        "implication.html":    (
+            "Tu respuesta separa el <b>contexto</b> (postura de cabeza, "
+            "iluminación, deriva postural — absorbible por la línea base "
+            "adaptativa) del <b>comportamiento</b> (una expresión "
+            "deliberada que vale la pena notar)."
+        ),
+        "status.out_of_norm":  "🔴 **Fuera de norma** — tu cara está significativamente fuera de la línea base.",
+        "status.excursion":    "🟠 **Excursión** — algo está cambiando.",
+        "status.stable":       "🟢 **Estable** — estás dentro del rango de tu línea base.",
+        "transcript.silence":  "_(silencio alrededor de este momento)_",
+        "msg.stable_take":     (
+            "Toma estable. Ninguna característica cruzó la línea de vigilancia. "
+            "Tu cara se mantuvo dentro del rango geométrico de tu línea base."
+        ),
+        "spider.subtitle":     (
+            "cada radio es una dimensión geométrica; el anillo verde es tu "
+            "zona estable, el anillo rojo es el umbral de fuera de norma"
+        ),
     },
 }
 
