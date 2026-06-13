@@ -73,6 +73,27 @@ STOP_KEYWORDS = {
     "ferma", "fine",
 }
 
+# Whisper notoriously hallucinates 'thank you' / 'thanks' on short
+# low-energy or silent chunks (over-represented in YouTube training
+# data). Ignore these outputs outright. Also captures other common
+# hallucinations on noise.
+WHISPER_HALLUCINATIONS = {
+    "thank you", "thank you.", "thanks", "thanks.", "thank", "you",
+    "you.", "yeah", "yeah.", "yep", "uh", "um", "mhm", "mm-hmm",
+    "okay", "ok",
+    "subtitles by", "subtitled by", "translated by",
+    "♪",
+    "gracias", "gracias.", "sí", "ah", "eh",
+}
+
+# Initial prompt biases Whisper toward our actual command vocabulary so
+# it preferentially transcribes ambiguous syllables as 'record' / 'stop'
+# rather than reaching for 'thank you'.
+_WHISPER_BIAS_PROMPT = (
+    "Voice command: record, start, begin, go, stop, halt, end, done, "
+    "grabar, comenzar, parar, detener."
+)
+
 
 class VoiceCommandListener:
     """Background mic listener that turns the words 'record' or 'stop'
@@ -338,7 +359,17 @@ class VoiceCommandListener:
                 w.setsampwidth(2)
                 w.setframerate(SAMPLE_RATE)
                 w.writeframes(pcm.tobytes())
-            segments, _ = self._model.transcribe(path, vad_filter=True)
+            # Three anti-hallucination knobs:
+            #   initial_prompt: bias Whisper toward our keyword vocabulary
+            #   no_speech_threshold: reject chunks Whisper thinks are silence
+            #   condition_on_previous_text=False: don't drift across chunks
+            segments, _ = self._model.transcribe(
+                path,
+                vad_filter=True,
+                initial_prompt=_WHISPER_BIAS_PROMPT,
+                no_speech_threshold=0.6,
+                condition_on_previous_text=False,
+            )
             text = " ".join(seg.text for seg in segments).strip().lower()
         finally:
             try:
@@ -349,11 +380,24 @@ class VoiceCommandListener:
             self._last_transcript = text
         if not text:
             return None
+        # Reject known Whisper hallucinations outright. These almost
+        # always mean the user didn't actually say anything.
+        if text in WHISPER_HALLUCINATIONS:
+            return None
+        # Token-level exact match.
         tokens = {tok.strip(".,!?;:¡¿") for tok in text.split()}
         if tokens & STOP_KEYWORDS:
             return "stop"
         if tokens & START_KEYWORDS:
             return "record"
+        # Substring fall-back: 'recording', 'rec', 'gracaí' etc. should
+        # still trigger 'record'. Search against the lowered transcript.
+        for kw in STOP_KEYWORDS:
+            if kw in text:
+                return "stop"
+        for kw in START_KEYWORDS:
+            if kw in text:
+                return "record"
         return None
 
     def test_one_shot(self) -> Optional[str]:
