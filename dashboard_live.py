@@ -702,91 +702,156 @@ def render_line_chart(
     if df.empty:
         return
 
-    base_line = (
-        alt.Chart(pd.DataFrame({"y": [0]}))
-        .mark_rule(color="#2a8a3a", strokeWidth=2)
-        .encode(y="y:Q")
-    )
-    threshold_low = (
-        alt.Chart(pd.DataFrame({"y": [50, -50]}))
-        .mark_rule(color="#9aa0a6", strokeDash=[4, 4])
-        .encode(y="y:Q")
-    )
-    threshold_high = (
-        alt.Chart(pd.DataFrame({"y": [100, -100]}))
-        .mark_rule(color="#d9534f", strokeDash=[4, 4])
-        .encode(y="y:Q")
-    )
-
-    win_layer = None
-    if window:
-        win_df = pd.DataFrame({"start": [window[0]], "end": [window[1]]})
-        win_layer = (
-            alt.Chart(win_df)
-            .mark_rect(color=accent_color, opacity=0.18)
-            .encode(x="start:Q", x2="end:Q")
-        )
-
     lang = st.session_state.get("out_lang", "en")
-    now_line = (
-        alt.Chart(df)
-        .mark_line(color=accent_color, strokeWidth=2)
-        .encode(
-            x=alt.X("t:Q", title=t("chart.time", lang)),
-            y=alt.Y(
-                "pct:Q",
-                title=t("chart.y_pct", lang),
-                axis=alt.Axis(labelExpr="datum.value + '%'"),
-            ),
-            tooltip=[
-                alt.Tooltip("t_int:Q", title=t("chart.time", lang)),
-                alt.Tooltip(
-                    "abs_pct_int:Q",
-                    title=t("chart.y_pct", lang),
-                ),
-            ],
+
+    # Render with matplotlib for parity with the spider chart: same
+    # bold-uppercase axis titles, same bottom-centered legend block,
+    # same approximate square-ish proportions.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.0))
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#fafbfd")
+
+    # Inflection-window shading (labelled this time).
+    if window:
+        ax.axvspan(
+            window[0], window[1],
+            color=accent_color, alpha=0.18,
+            label=t("chart.legend.episode", lang),
         )
+
+    # Threshold rules.
+    ax.axhline(0, color="#2a8a3a", linewidth=2,
+               label=t("chart.legend.baseline", lang))
+    ax.axhline(50, color="#9aa0a6", linewidth=1.4,
+               linestyle=(0, (5, 4)),
+               label=t("chart.legend.watch", lang))
+    ax.axhline(-50, color="#9aa0a6", linewidth=1.4,
+               linestyle=(0, (5, 4)))
+    ax.axhline(100, color="#d9534f", linewidth=1.4,
+               linestyle=(0, (5, 4)),
+               label=t("chart.legend.oon", lang))
+    ax.axhline(-100, color="#d9534f", linewidth=1.4,
+               linestyle=(0, (5, 4)))
+
+    # NOW trace.
+    ax.plot(
+        df["t"].values, df["pct"].values,
+        color=accent_color, linewidth=2.2,
+        label=t("chart.legend.now", lang),
     )
 
-    legend_chart = alt.Chart(
-        pd.DataFrame(
-            {
-                "label": [
-                    t("chart.legend.baseline", lang),
-                    t("chart.legend.now", lang),
-                    t("chart.legend.watch", lang),
-                    t("chart.legend.oon", lang),
-                ],
-                "color": ["#2a8a3a", accent_color, "#9aa0a6", "#d9534f"],
-                "x": [0, 1, 2, 3],
-            }
-        )
-    ).mark_point(filled=True, size=120).encode(
-        x=alt.X(
-            "label:N",
-            title=None,
-            axis=alt.Axis(
-                labelAngle=0, labelColor="#1a1a1a", labelFontWeight="bold"
-            ),
-        ),
-        color=alt.Color(
-            "color:N",
-            scale=None,
-            legend=None,
-        ),
-    ).properties(height=40)
+    # Bold-uppercase axis titles to mirror the spider chart's category
+    # font.
+    ax.set_xlabel(
+        t("chart.time", lang).upper(),
+        fontsize=11, fontweight="bold", color="#1a1a1a",
+    )
+    ax.set_ylabel(
+        t("chart.y_pct", lang).upper(),
+        fontsize=11, fontweight="bold", color="#1a1a1a",
+    )
 
-    layers = [base_line, threshold_low, threshold_high, now_line]
-    if win_layer is not None:
-        layers.insert(0, win_layer)
-    chart = alt.layer(*layers).properties(height=180)
-    full = alt.vconcat(chart, legend_chart).resolve_scale(color="independent")
-    st.altair_chart(full, use_container_width=True)
+    # Y axis ticks at the same magnitudes the spider uses.
+    ax.set_yticks([-100, -50, 0, 50, 100])
+    ax.set_yticklabels(["-100%", "-50%", "0%", "50%", "100%"],
+                       fontsize=9, color="#555555")
+    ax.tick_params(axis="x", labelsize=9, colors="#555555")
+    rmax = max(abs(df["pct"].max()), abs(df["pct"].min()), 110.0)
+    ax.set_ylim(-rmax * 1.05, rmax * 1.05)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#cccccc")
+    ax.spines["bottom"].set_color("#cccccc")
+    ax.grid(color="#e8e8e8", linewidth=0.6)
+
+    # Bottom-centred single-column legend — matches the spider's format.
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=1,
+        fontsize=10,
+        frameon=False,
+    )
+
+    fig.subplots_adjust(bottom=0.30)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.25,
+                dpi=110, facecolor="#ffffff")
+    plt.close(fig)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode("ascii")
+    st.markdown(
+        f"<div style='text-align:center;margin-top:6px'>"
+        f"<img src='data:image/png;base64,{b64}' "
+        f"style='width:100%;height:auto'/>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
 # Session-state init
 # ─────────────────────────────────────────────────────────────────────────
+
+def crop_to_face_avatar(
+    frame: np.ndarray, size: int = 256
+) -> Optional[np.ndarray]:
+    """Run the face detector on a single frame, tightly crop to the head
+    region, then apply a circular alpha mask so the avatar reads as a
+    cleanly-isolated headshot — no room background, no chair, no
+    surrounding shoulders. Returns the masked BGR image (with the
+    background filled white). None if no face detected."""
+    detector = get_detector()
+    sample = detector.detect(frame, 0.0)
+    if sample is None:
+        return None
+    h, w = frame.shape[:2]
+    xs = [
+        sample.left_eye[0], sample.right_eye[0],
+        sample.left_mouth[0], sample.right_mouth[0],
+        sample.left_brow[0], sample.right_brow[0],
+    ]
+    ys = [
+        sample.left_eye[1], sample.right_eye[1],
+        sample.left_mouth[1], sample.right_mouth[1],
+        sample.left_brow[1], sample.right_brow[1],
+    ]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    fw = x_max - x_min
+    fh = y_max - y_min
+    if fw <= 0 or fh <= 0:
+        return None
+    # Generous head crop: hair top, sliver of neck, full ears.
+    cx = (x_min + x_max) / 2
+    cy = (y_min + y_max) / 2
+    span = max(fw, fh) * 2.2
+    left = int(max(0, cx - span / 2))
+    right = int(min(w, cx + span / 2))
+    top = int(max(0, cy - span * 0.55))
+    bottom = int(min(h, cy + span * 0.55))
+    if right <= left or bottom <= top:
+        return None
+    crop = frame[top:bottom, left:right].copy()
+    crop = cv2.resize(crop, (size, size), interpolation=cv2.INTER_AREA)
+    # Soft-edged circular mask → white background. Looks like a stock
+    # avatar headshot rather than a webcam capture.
+    mask = np.zeros((size, size), dtype=np.float32)
+    cv2.circle(mask, (size // 2, size // 2), int(size * 0.46), 1.0, -1)
+    mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=size * 0.025)
+    mask3 = cv2.merge([mask, mask, mask])
+    white = np.full_like(crop, 255, dtype=np.uint8)
+    blended = (crop.astype(np.float32) * mask3 +
+               white.astype(np.float32) * (1.0 - mask3))
+    return blended.astype(np.uint8)
+
 
 def init_state() -> None:
     ss = st.session_state
@@ -2137,8 +2202,18 @@ def render_sidebar() -> dict:
             snap_cap = get_camera(int(camera_idx))
             ok, frame = snap_cap.read()
             if ok:
-                ss.avatar_bgr = crop_to_square(frame)
-                st.success("Avatar set from webcam.")
+                isolated = crop_to_face_avatar(frame, size=256)
+                if isolated is not None:
+                    ss.avatar_bgr = isolated
+                    st.success("Avatar set — face isolated, background hidden.")
+                else:
+                    # Fallback: no face detected → save the centre square.
+                    ss.avatar_bgr = crop_to_square(frame)
+                    st.warning(
+                        "No face detected — saved a centre square crop. "
+                        "Move closer to the camera and try again for "
+                        "background isolation."
+                    )
             else:
                 st.error("Could not read from the webcam.")
         if ss.avatar_bgr is not None:
