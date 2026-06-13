@@ -1191,7 +1191,7 @@ def render_mobile_tab() -> None:
                 f"<div style='text-align:center;font-weight:bold;"
                 f"font-size:1rem;padding-top:6px;color:#0a0a0a;"
                 f"letter-spacing:1px'>"
-                f"MOMENT {ss.mobile_idx + 1} OF {total}"
+                f"NUANCE {ss.mobile_idx + 1} OF {total}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -1509,7 +1509,7 @@ def render_insights_tab() -> None:
         )
         return
 
-    st.markdown("### Ranked unique moments")
+    st.markdown("### Ranked unique nuances")
     st.caption(
         "One row per distinct feature, sorted by impact (duration × peak σ). "
         "No duplicates: each feature appears once with its peak frame."
