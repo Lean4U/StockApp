@@ -604,22 +604,23 @@ def render_spider_chart(
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#fafbfd")
 
+    lang = st.session_state.get("out_lang", "en")
     # Green-shaded BASELINE acceptable range: full circle from 0 to 50 %.
     theta_ring = np.linspace(0, 2 * np.pi, 200)
     r_outer = np.full_like(theta_ring, 50.0)
     ax.fill(theta_ring, r_outer, color="#2a8a3a", alpha=0.22,
-            label="BASELINE (Stable Zone - Normal)")
+            label=t("chart.spider.baseline", lang))
     ax.plot(theta_ring, r_outer, color="#2a8a3a", linewidth=1.5)
 
     # Dashed OUT-OF-NORM circle at 100% — the σ-high statistical threshold.
     r_breach = np.full_like(theta_ring, 100.0)
     ax.plot(theta_ring, r_breach, color="#d9534f",
             linewidth=1.5, linestyle=(0, (5, 4)),
-            label=t("label.breach_line", st.session_state.get("out_lang", "en")))
+            label=t("label.breach_line", lang))
 
     # NOW polygon.
     ax.plot(angles, now_vals, color=accent_color, linewidth=2.2,
-            label="NOW (your face at this nuance)",
+            label=t("chart.spider.now", lang),
             marker="o", markersize=5)
     ax.fill(angles, now_vals, color=accent_color, alpha=0.22)
 
@@ -708,19 +709,20 @@ def render_line_chart(
             .encode(x="start:Q", x2="end:Q")
         )
 
+    lang = st.session_state.get("out_lang", "en")
     now_line = (
         alt.Chart(df)
         .mark_line(color=accent_color, strokeWidth=2)
         .encode(
-            x=alt.X("t:Q", title="time (s)"),
+            x=alt.X("t:Q", title=t("chart.time", lang)),
             y=alt.Y(
                 "pct:Q",
-                title="% of out-of-norm",
+                title=t("chart.y_pct", lang),
                 axis=alt.Axis(labelExpr="datum.value + '%'"),
             ),
             tooltip=[
                 alt.Tooltip("t:Q", format=".2f"),
-                alt.Tooltip("pct:Q", title="% of out-of-norm", format=".0f"),
+                alt.Tooltip("pct:Q", title=t("chart.y_pct", lang), format=".0f"),
             ],
         )
     )
@@ -728,7 +730,12 @@ def render_line_chart(
     legend_chart = alt.Chart(
         pd.DataFrame(
             {
-                "label": ["BASELINE (0%)", "NOW", "watch line (±50%)", "out of norm (±100%)"],
+                "label": [
+                    t("chart.legend.baseline", lang),
+                    t("chart.legend.now", lang),
+                    t("chart.legend.watch", lang),
+                    t("chart.legend.oon", lang),
+                ],
                 "color": ["#2a8a3a", accent_color, "#9aa0a6", "#d9534f"],
                 "x": [0, 1, 2, 3],
             }
