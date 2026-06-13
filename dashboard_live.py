@@ -281,10 +281,11 @@ def _face_crop_box(
     h = y_max - y_min
     if w <= 0 or h <= 0:
         return None
-    # Padding: side and head-top wide enough for hair / shoulders.
-    pad_x = w * 0.65
-    pad_y_top = h * 1.1
-    pad_y_bot = h * 0.9
+    # Padding: enough to include hair + chin + a sliver of neck without
+    # spilling into the room behind the subject.
+    pad_x = w * 0.30
+    pad_y_top = h * 0.65
+    pad_y_bot = h * 0.35
     left = int(max(0, x_min - pad_x))
     top = int(max(0, y_min - pad_y_top))
     right = int(min(tw, x_max + pad_x))
@@ -804,15 +805,18 @@ def _img_as_inline_html(
 
 
 def render_mobile_tab() -> None:
-    """iPhone 14 Pro–oriented vertical inflection feed.
+    """iPhone 14 Pro–oriented vertical inflection feed with pagination.
 
-    Each inflection is a single column card:
+    One inflection visible at a time, navigated by Prev / Next chevron
+    buttons (the "swipe between inflections" trial). Each card stacks
+    vertically:
        1) Tight face-crop close-up at full screen width.
        2) Title + plain-language meaning + cited science + Socratic question
           + (transcript) + timestamps.
-       3) Twin baseline-vs-now mini panels colour-coded by severity.
+       3) Larger twin baseline-vs-now panels.
     """
     ss = st.session_state
+    ss.setdefault("mobile_idx", 0)
     if not ss.event_log:
         st.info(
             "Run **Record → Stop → Detect** in the sidebar to populate "
@@ -821,8 +825,8 @@ def render_mobile_tab() -> None:
         return
     summary = ss.event_log
     events = summary.get("events", [])
-    rows = aggregate_unique_inflections(events)
-    if not events:
+    rows = aggregate_unique_inflections(events)[:8]
+    if not events or not rows:
         st.success(
             "Stable take. No feature crossed σ-low. Your face stayed within "
             "the geometric envelope of your baseline."
@@ -831,12 +835,54 @@ def render_mobile_tab() -> None:
     if ss.active_baseline_key:
         st.caption(f"Baseline: **{ss.active_baseline_key}**")
 
-    # Constrain to mobile-portrait width on larger screens so the layout
-    # always reads the same. Streamlit columns let us centre + cap width.
+    total = len(rows)
+    ss.mobile_idx = max(0, min(ss.mobile_idx, total - 1))
+
     pad_l, content, pad_r = st.columns([1, 6, 1])
     with content:
-        for i, r in enumerate(rows[:8]):
-            _render_mobile_card(i + 1, r)
+        # Swipe-style pagination: ◀ chevron · "N of T" · chevron ▶
+        nav_prev, nav_label, nav_next = st.columns([1, 4, 1])
+        with nav_prev:
+            if st.button(
+                "◀",
+                use_container_width=True,
+                disabled=ss.mobile_idx <= 0,
+                key="mobile_prev",
+            ):
+                ss.mobile_idx -= 1
+                st.rerun()
+        with nav_label:
+            st.markdown(
+                f"<div style='text-align:center;font-weight:bold;"
+                f"font-size:1rem;padding-top:6px;color:#dde6f1;"
+                f"letter-spacing:1px'>"
+                f"INFLECTION {ss.mobile_idx + 1} OF {total}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with nav_next:
+            if st.button(
+                "▶",
+                use_container_width=True,
+                disabled=ss.mobile_idx >= total - 1,
+                key="mobile_next",
+            ):
+                ss.mobile_idx += 1
+                st.rerun()
+        # Compact dot-pagination row beneath the chevrons.
+        dot_html = " ".join(
+            (
+                f"<span style='display:inline-block;width:10px;height:10px;"
+                f"border-radius:50%;margin:0 3px;background:"
+                f"{CATEGORY_PALETTE[rows[i]['category']] if i == ss.mobile_idx else '#3a3f4a'}'></span>"
+            )
+            for i in range(total)
+        )
+        st.markdown(
+            f"<div style='text-align:center;margin:6px 0 14px 0'>{dot_html}</div>",
+            unsafe_allow_html=True,
+        )
+        _render_mobile_card(ss.mobile_idx + 1, rows[ss.mobile_idx])
 
 
 def _render_mobile_card(rank: int, r: dict) -> None:
@@ -909,7 +955,13 @@ def _render_mobile_card(rank: int, r: dict) -> None:
 
     # Section 3: twin baseline → now panels (face-cropped if face feature).
     st.markdown(
-        "<div style='margin-top:14px'></div>", unsafe_allow_html=True
+        "<div style='margin-top:22px;font-size:0.85rem;color:#9aa0a6;"
+        "letter-spacing:1.5px;text-transform:uppercase;text-align:center'>"
+        "Baseline vs. now</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='margin-top:8px'></div>", unsafe_allow_html=True
     )
     twin_html = _mobile_twin_html(r, peak_t, color)
     st.markdown(twin_html, unsafe_allow_html=True)
@@ -976,10 +1028,12 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         )
 
     return (
-        f"<div style='display:flex;gap:10px;align-items:center'>"
-        f"{panel(baseline_face, baseline_ring, 3, 'BASELINE', '#9aa0a6', dim=True)}"
-        f"<div style='color:{color};font-size:1.6rem;font-weight:bold'>→</div>"
-        f"{panel(now_face, color, border_w, 'NOW', color, dim=False)}"
+        f"<div style='display:flex;gap:16px;align-items:center;"
+        f"max-width:100%;margin:0 auto'>"
+        f"{panel(baseline_face, baseline_ring, 4, 'BASELINE', '#9aa0a6', dim=True)}"
+        f"<div style='color:{color};font-size:2.2rem;font-weight:bold;"
+        f"line-height:1'>→</div>"
+        f"{panel(now_face, color, border_w + 2, 'NOW', color, dim=False)}"
         f"</div>"
     )
 
@@ -1301,10 +1355,17 @@ def render_sidebar() -> dict:
     ss = st.session_state
     recorder = get_audio_recorder()
     with st.sidebar:
-        st.header("Camera")
-        camera_idx = st.number_input("Camera index", 0, 4, 0, step=1)
+        st.header("📷  Camera")
+        camera_idx = st.number_input(
+            "Camera index",
+            0,
+            4,
+            0,
+            step=1,
+            help="0 is the default webcam. Try 1 / 2 if you have multiple.",
+        )
 
-        st.header("Avatar")
+        st.header("👤  Avatar")
         st.caption(
             "Optional. Replaces the neutral silhouette next to each ranked "
             "inflection. Stays local — never uploaded anywhere."
@@ -1350,7 +1411,7 @@ def render_sidebar() -> dict:
                 caption="Current avatar",
             )
 
-        st.header("Baseline")
+        st.header("🎯  Baseline")
         names = list(ss.signatures.keys())
         baseline_choice = st.selectbox(
             "Compare against",
@@ -1367,11 +1428,13 @@ def render_sidebar() -> dict:
             disabled=not adapt_on,
         )
 
-        st.header("Detector")
-        sigma_low = st.slider("σ low threshold", 1.0, 6.0, 3.0, 0.1)
-        sigma_high = st.slider("σ high threshold", 3.0, 10.0, 6.0, 0.1)
+        # Optimal σ thresholds are hard-coded — the trial sequence
+        # (brow / smile / head turn) confirmed 3.0 σ-low and 6.0 σ-high
+        # are the right defaults across subjects and languages.
+        sigma_low = 3.0
+        sigma_high = 6.0
 
-        st.header("Recording")
+        st.header("🎬  Recording")
         c1, c2 = st.columns(2)
         if c1.button(
             "Record ▶" if not ss.recording else "Stop ■",
@@ -1412,8 +1475,13 @@ def render_sidebar() -> dict:
         else:
             st.caption("Audio: _sounddevice not installed_")
 
-        st.header("Enroll baseline")
-        new_name = st.text_input("Name for current samples", value="")
+        st.header("💾  Enroll new baseline")
+        new_name = st.text_input(
+            "Name for current samples",
+            value="",
+            placeholder="e.g. julio_seated_english",
+            help="The label you'll pick from 'Compare against' next time.",
+        )
         if st.button("Enroll", use_container_width=True):
             base = fit_baseline(ss.samples, std_floor=_LIVE_STD_FLOOR)
             if base is None:
@@ -1429,7 +1497,7 @@ def render_sidebar() -> dict:
                     f"duration={base.duration_s:.2f}s"
                 )
 
-        st.header("Detect")
+        st.header("🔍  Detect")
         do_transcribe = st.checkbox(
             "Transcribe audio after detect",
             value=recorder.available,
@@ -1465,6 +1533,7 @@ def render_sidebar() -> dict:
                     " (adapted)" if adapt_on else ""
                 )
                 ss.selected_event_idx = 0
+                ss.mobile_idx = 0
 
                 if do_transcribe and recorder.available:
                     with st.spinner("Transcribing audio locally…"):
