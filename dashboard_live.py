@@ -573,7 +573,8 @@ def render_spider_chart(
 
     Axis labels are the technical feature names (the text that lives in
     parentheses on the row title). Values are mapped from σ to percent
-    of breach via z/6 × 100, so σ-low = 50 %, σ-high = 100 %.
+    of the OUT-OF-NORM line via z/6 × 100, so watch-line = 50 %,
+    out-of-norm = 100 %.
     """
     z_map = _zscores_at_time(peak_t, samples, baseline)
     if z_map is None:
@@ -608,11 +609,11 @@ def render_spider_chart(
             label="BASELINE (Stable Zone)")
     ax.plot(theta_ring, r_outer, color="#2a8a3a", linewidth=1.5)
 
-    # Dashed BREACH circle at 100% — the σ-high threshold.
+    # Dashed OUT-OF-NORM circle at 100% — the σ-high statistical threshold.
     r_breach = np.full_like(theta_ring, 100.0)
     ax.plot(theta_ring, r_breach, color="#d9534f",
             linewidth=1.5, linestyle=(0, (5, 4)),
-            label="BREACH LINE (100% = σ-high)")
+            label=t("label.breach_line", st.session_state.get("out_lang", "en")))
 
     # NOW polygon.
     ax.plot(angles, now_vals, color=accent_color, linewidth=2.2,
@@ -658,7 +659,7 @@ def render_line_chart(
     """Time-series of the dominant feature's z-score over the take.
     BASELINE drawn as the green zero line, NOW drawn as the deviation
     trace, with the inflection window highlighted in the accent colour
-    and σ-low / σ-high thresholds dashed.
+    and the watch (3 σ) / out-of-norm (6 σ) thresholds dashed.
     """
     if not samples or baseline is None:
         return
@@ -715,7 +716,7 @@ def render_line_chart(
     legend_chart = alt.Chart(
         pd.DataFrame(
             {
-                "label": ["BASELINE", "NOW", "σ-low (3.0)", "σ-high (6.0)"],
+                "label": ["BASELINE", "NOW", "watch line", "out of norm"],
                 "color": ["#2a8a3a", accent_color, "#9aa0a6", "#d9534f"],
                 "x": [0, 1, 2, 3],
             }
@@ -1082,7 +1083,7 @@ def status_caption(
     t2_peak: float, sigma_low: float, sigma_high: float
 ) -> str:
     if t2_peak >= sigma_high:
-        return "🔴 **Breach** — your face is significantly off baseline."
+        return "🔴 **Out of norm** — your face is significantly off baseline."
     if t2_peak >= sigma_low:
         return "🟠 **Excursion** — something is shifting."
     return "🟢 **Stable** — you're within your baseline envelope."
@@ -1093,7 +1094,7 @@ def quick_story_line(summary: dict) -> str:
         return ""
     events = summary.get("events", [])
     if not events:
-        return "Stable take — nothing crossed σ-low."
+        return "Stable take — nothing crossed the watch line."
     rows = aggregate_unique_inflections(events)
     if not rows:
         return ""
@@ -1261,7 +1262,7 @@ def render_mobile_tab() -> None:
     rows = aggregate_unique_inflections(events)[:8]
     if not events or not rows:
         st.success(
-            "Stable take. No feature crossed σ-low. Your face stayed within "
+            "Stable take. No feature crossed the watch line. Your face stayed within "
             "the geometric envelope of your baseline."
         )
         return
@@ -1630,7 +1631,7 @@ def render_insights_tab() -> None:
 
     if not events:
         st.success(
-            "Stable take. No feature crossed σ-low. Your face stayed within "
+            "Stable take. No feature crossed the watch line. Your face stayed within "
             "the geometric envelope of your baseline."
         )
         return
@@ -1917,8 +1918,9 @@ def render_guide_tab() -> None:
         - **CUSUM** — catches *sustained* drift even when each frame's
           deviation is small.
 
-        A "breach" is when T² goes past your σ-high threshold (default 6 σ).
-        An "excursion" is between σ-low and σ-high.
+        We call it **"out of norm"** when T² goes past the σ-high
+        threshold (default 6 σ) — the dashboard's red dashed ring.
+        An **"excursion"** is between the watch line (3 σ) and out-of-norm.
 
         #### Two ways to use this
 
