@@ -516,19 +516,54 @@ def _draw_trap_aligned_to(
     dst_cy = sum(p[1] for p in dst_pts) / 4.0
     dx = dst_cx - src_cx
     dy = dst_cy - src_cy
-    pts = []
-    for p in src_pts:
-        tx = int((p[0] + dx) * scale - left)
-        ty = int((p[1] + dy) * scale - top)
-        pts.append([tx, ty])
+
+    def _xy(p):
+        return (int((p[0] + dx) * scale - left),
+                int((p[1] + dy) * scale - top))
+
+    pts = [_xy(p) for p in src_pts]
     cv2.polylines(
-        img,
-        [np.array(pts, dtype=np.int32)],
-        isClosed=True,
-        color=color_bgr,
-        thickness=thickness,
-        lineType=cv2.LINE_AA,
+        img, [np.array(pts, dtype=np.int32)], isClosed=True,
+        color=color_bgr, thickness=thickness, lineType=cv2.LINE_AA,
     )
+    # Brow markers — the actual delta for brow nuances, which the
+    # 4-corner trapezium itself doesn't capture. Connect each brow point
+    # to its same-side eye corner so brow-to-eye distance is visible.
+    lb = _xy(src_sample.left_brow[:2])
+    rb = _xy(src_sample.right_brow[:2])
+    le = _xy(src_sample.left_eye[:2])
+    re = _xy(src_sample.right_eye[:2])
+    cv2.line(img, le, lb, color_bgr, 1, cv2.LINE_AA)
+    cv2.line(img, re, rb, color_bgr, 1, cv2.LINE_AA)
+    cv2.circle(img, lb, 4, color_bgr, -1, cv2.LINE_AA)
+    cv2.circle(img, rb, 4, color_bgr, -1, cv2.LINE_AA)
+
+
+def _draw_brow_markers(
+    img: np.ndarray,
+    sample: Optional[TrapeziumSample],
+    scale: float,
+    crop_box: tuple,
+    color_bgr: tuple,
+) -> None:
+    """Brow dots + brow-to-eye connector lines for NOW so the user sees
+    the brow delta against the green baseline brows drawn by
+    _draw_trap_aligned_to."""
+    if sample is None:
+        return
+    left, top, _, _ = crop_box
+
+    def _xy(p):
+        return (int(p[0] * scale - left), int(p[1] * scale - top))
+
+    lb = _xy(sample.left_brow[:2])
+    rb = _xy(sample.right_brow[:2])
+    le = _xy(sample.left_eye[:2])
+    re = _xy(sample.right_eye[:2])
+    cv2.line(img, le, lb, color_bgr, 1, cv2.LINE_AA)
+    cv2.line(img, re, rb, color_bgr, 1, cv2.LINE_AA)
+    cv2.circle(img, lb, 4, color_bgr, -1, cv2.LINE_AA)
+    cv2.circle(img, rb, 4, color_bgr, -1, cv2.LINE_AA)
 
 
 def _active_baseline() -> Optional[Baseline]:
@@ -1786,6 +1821,17 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         and now_box is not None
     ):
         fusion_img = now_img.copy()  # already has the RED now-trap drawn
+        # NOW brow markers (red) so the user can compare against the green
+        # baseline brow markers added by _draw_trap_aligned_to. The
+        # trapezium itself only captures eye + mouth corners; brow
+        # deltas live on these extra points.
+        _draw_brow_markers(
+            fusion_img,
+            now_sample,
+            now_scale or 1.0,
+            now_box,
+            TRAP_RED_BGR,
+        )
         _draw_trap_aligned_to(
             fusion_img,
             baseline_sample,   # source — its shape
