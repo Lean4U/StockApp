@@ -481,6 +481,56 @@ def _draw_trap_on_crop(
     )
 
 
+def _draw_trap_aligned_to(
+    img: np.ndarray,
+    src_sample: Optional[TrapeziumSample],
+    dst_sample: Optional[TrapeziumSample],
+    scale: float,
+    crop_box: tuple,
+    color_bgr: tuple,
+    thickness: int = 2,
+) -> None:
+    """Draw ``src_sample``'s trapezium translated so its centroid matches
+    ``dst_sample``'s centroid. Used by the fusion overlay so the BASELINE
+    green outline sits on top of the same face the RED now outline sits
+    on, showing the geometric SHAPE difference rather than where the
+    user's head happened to be at the start of the take."""
+    if src_sample is None or dst_sample is None:
+        return
+    left, top, _, _ = crop_box
+    src_pts = [
+        src_sample.left_eye[:2],
+        src_sample.right_eye[:2],
+        src_sample.right_mouth[:2],
+        src_sample.left_mouth[:2],
+    ]
+    dst_pts = [
+        dst_sample.left_eye[:2],
+        dst_sample.right_eye[:2],
+        dst_sample.right_mouth[:2],
+        dst_sample.left_mouth[:2],
+    ]
+    src_cx = sum(p[0] for p in src_pts) / 4.0
+    src_cy = sum(p[1] for p in src_pts) / 4.0
+    dst_cx = sum(p[0] for p in dst_pts) / 4.0
+    dst_cy = sum(p[1] for p in dst_pts) / 4.0
+    dx = dst_cx - src_cx
+    dy = dst_cy - src_cy
+    pts = []
+    for p in src_pts:
+        tx = int((p[0] + dx) * scale - left)
+        ty = int((p[1] + dy) * scale - top)
+        pts.append([tx, ty])
+    cv2.polylines(
+        img,
+        [np.array(pts, dtype=np.int32)],
+        isClosed=True,
+        color=color_bgr,
+        thickness=thickness,
+        lineType=cv2.LINE_AA,
+    )
+
+
 def _active_baseline() -> Optional[Baseline]:
     """Return the Baseline currently used for detection (adapted form when
     the take has settled enough samples for the adapt window). Used by the
@@ -1723,13 +1773,23 @@ def _mobile_twin_html(r: dict, peak_t: float, color: str) -> str:
         )
 
     # Build the fusion overlay: same NOW frame, with the BASELINE
-    # trapezium drawn on top in green so the geometric shift is visible.
+    # trapezium drawn on top in green so the geometric shape difference
+    # is visible. The baseline trapezium is centroid-aligned to the now
+    # trapezium so both sit on the same face — the user sees the shape
+    # delta, not the (less interesting) positional drift between
+    # the take's first frame and the inflection moment.
     fusion_img = None
-    if now_img is not None and baseline_sample is not None and now_box is not None:
+    if (
+        now_img is not None
+        and baseline_sample is not None
+        and now_sample is not None
+        and now_box is not None
+    ):
         fusion_img = now_img.copy()  # already has the RED now-trap drawn
-        _draw_trap_on_crop(
+        _draw_trap_aligned_to(
             fusion_img,
-            baseline_sample,
+            baseline_sample,   # source — its shape
+            now_sample,        # destination — its centroid
             now_scale or 1.0,
             now_box,
             TRAP_GREEN_BGR,
